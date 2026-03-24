@@ -6,6 +6,7 @@
 set -euo pipefail
 
 VERSION="${VERSION:-1.0.0}"
+DEB_VERSION="${VERSION#v}"   # dpkg rejects leading 'v' (v1.0.0 → 1.0.0)
 ARCH="$(uname -m)"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -75,7 +76,7 @@ ok "AppImage → dist/simplelog-${ARCH}.AppImage"
 # ── 3. .deb ───────────────────────────────────────────────────────────────────
 log "Creating .deb package…"
 
-DEB_ROOT="dist/deb_build/simplelog_${VERSION}_amd64"
+DEB_ROOT="dist/deb_build/simplelog_${DEB_VERSION}_amd64"
 rm -rf dist/deb_build
 mkdir -p "${DEB_ROOT}/DEBIAN"
 mkdir -p "${DEB_ROOT}/usr/lib/simplelog"
@@ -107,7 +108,7 @@ DESKTOP
 # DEBIAN/control
 cat > "${DEB_ROOT}/DEBIAN/control" <<CONTROL
 Package: simplelog
-Version: ${VERSION}
+Version: ${DEB_VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
