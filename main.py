@@ -9,17 +9,22 @@ Usage:
   simplelog --split horizontal f1 f2    → open f1 & f2 top/bottom
 """
 import argparse
+import json
 import os
 import sys
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import QApplication
 
 from ui import MainWindow
 from ui import apply_style as apply_dark_palette
 
+# Unique socket name for this app's IPC channel
+_SOCKET_NAME = "simplelog-ipc-v1"
 
-def main():
+
+def _parse_args():
     parser = argparse.ArgumentParser(
         prog="simplelog",
         description="SimpleLog — multi-source log viewer",
@@ -41,14 +46,87 @@ def main():
     )
     parser.add_argument("files", nargs="*", help="Log file paths to open")
     args, _ = parser.parse_known_args()
+    return args
 
+
+def _try_forward_to_existing(args) -> bool:
+    """
+    If another SimpleLog instance is already running, send our args to it and
+    return True (caller should exit).  Returns False if no instance found.
+    """
+    # stdin piping cannot be forwarded — always start a new instance
+    if not sys.stdin.isatty():
+        return False
+
+    socket = QLocalSocket()
+    socket.connectToServer(_SOCKET_NAME)
+    if not socket.waitForConnected(300):
+        return False
+
+    payload = json.dumps({
+        "files": args.files,
+        "split": args.split,
+        "tail": args.tail,
+    }).encode() + b"\n"
+    socket.write(payload)
+    socket.waitForBytesWritten(1000)
+    socket.disconnectFromServer()
+    return True
+
+
+def _setup_ipc_server(window: MainWindow) -> QLocalServer:
+    """Start the local IPC server so this instance can receive args from future invocations."""
+    QLocalServer.removeServer(_SOCKET_NAME)  # clean up stale socket from a previous crash
+    server = QLocalServer(window)
+    server.listen(_SOCKET_NAME)
+
+    def _on_connection():
+        conn = server.nextPendingConnection()
+        # Use a closure to accumulate data (readyRead may fire multiple times)
+        buf = bytearray()
+
+        def _on_data():
+            buf.extend(bytes(conn.readAll()))
+            if b"\n" not in buf:
+                return
+            try:
+                msg = json.loads(buf.split(b"\n")[0])
+            except (ValueError, KeyError):
+                return
+            for path in msg.get("files", []):
+                if os.path.isfile(path):
+                    window.open_file_tab(path, msg.get("tail", 100), msg.get("split", "tab"))
+            # Bring window to front
+            window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+            window.raise_()
+            window.activateWindow()
+
+        conn.readyRead.connect(_on_data)
+
+    server.newConnection.connect(_on_connection)
+    return server
+
+
+def main():
+    args = _parse_args()
+
+    # Need a QApplication to use QLocalSocket (even before showing a window)
     app = QApplication(sys.argv)
     app.setApplicationName("SimpleLog")
     app.setStyle("Fusion")
     apply_dark_palette(app)
 
+    # ── Single-instance check ──────────────────────────────────────────────────
+    if _try_forward_to_existing(args):
+        # Another instance accepted our request — nothing more to do.
+        sys.exit(0)
+
+    # ── First (primary) instance ───────────────────────────────────────────────
     window = MainWindow()
     window.show()
+
+    # Start listening for future invocations
+    _ipc_server = _setup_ipc_server(window)  # noqa: F841 — keep reference alive
 
     # Detect piped stdin (not a terminal)
     stdin_is_pipe = not sys.stdin.isatty()
