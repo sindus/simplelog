@@ -1256,8 +1256,9 @@ class MainWindow(QMainWindow):
         self._splitter.setChildrenCollapsible(False)
         self._splitter.setStyleSheet(
             f"QSplitter::handle {{ background: {C_DIVIDER}; }}"
-            f"QSplitter::handle:horizontal {{ width: 3px; }}"
-            f"QSplitter::handle:vertical {{ height: 3px; }}"
+            f"QSplitter::handle:horizontal {{ width: 5px; }}"
+            f"QSplitter::handle:vertical {{ height: 5px; }}"
+            f"QSplitter::handle:hover {{ background: {C_ACCENT}; }}"
         )
         first_pane = self._make_pane()
         self._splitter.addWidget(first_pane)
@@ -1478,18 +1479,23 @@ class MainWindow(QMainWindow):
     def _set_active_pane(self, pane: QTabWidget):
         self._active_pane = pane
 
+    _MAX_PANES = 9
+
     def _get_or_create_secondary_pane(self, orientation: Qt.Orientation) -> QTabWidget:
-        if len(self._panes) >= 2:
-            return self._panes[1]
-        self._splitter.setOrientation(orientation)
+        if len(self._panes) >= self._MAX_PANES:
+            return self._panes[-1]
+        # Set orientation only on the first split
+        if len(self._panes) == 1:
+            self._splitter.setOrientation(orientation)
         pane = self._make_pane()
         self._splitter.addWidget(pane)
         self._panes.append(pane)
-        # Equal split
-        total = (self._splitter.width() if orientation == Qt.Orientation.Horizontal
+        # Redistribute sizes equally across all panes
+        n = len(self._panes)
+        total = (self._splitter.width() if self._splitter.orientation() == Qt.Orientation.Horizontal
                  else self._splitter.height())
-        half = max(total // 2, 200)
-        self._splitter.setSizes([half, half])
+        share = max(total // n, 150)
+        self._splitter.setSizes([share] * n)
         return pane
 
     # ── Nav ───────────────────────────────────────────────────────────────────
