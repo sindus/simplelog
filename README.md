@@ -185,6 +185,32 @@ ruff check .
 
 ---
 
+## Uninstall
+
+### macOS (.dmg)
+
+```bash
+# Remove the app bundle
+rm -rf /Applications/SimpleLog.app
+```
+
+### Linux — Debian / Ubuntu (.deb)
+
+```bash
+sudo apt remove simplelog
+# or, if installed directly with dpkg:
+sudo dpkg -r simplelog
+```
+
+### Linux — AppImage
+
+```bash
+# Remove the binary you placed in PATH (default location used by install.sh)
+rm -f ~/.local/bin/simplelog
+```
+
+---
+
 ## License
 
 MIT

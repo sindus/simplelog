@@ -52,9 +52,10 @@ Categories=Development;Utility;
 Terminal=false
 DESKTOP
 
-# Placeholder icon (1×1 transparent PNG in base64 — replace with real icon)
-printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' \
-    | base64 -d > "$APPDIR/simplelog.png"
+# Generate app icon from SVG
+log "Generating app icon…"
+python3 packaging/make_icon.py dist/simplelog.png 256
+cp dist/simplelog.png "$APPDIR/simplelog.png"
 
 # Download appimagetool
 if ! command -v appimagetool &>/dev/null; then
@@ -83,8 +84,13 @@ mkdir -p "${DEB_ROOT}/usr/lib/simplelog"
 mkdir -p "${DEB_ROOT}/usr/bin"
 mkdir -p "${DEB_ROOT}/usr/share/applications"
 mkdir -p "${DEB_ROOT}/usr/share/pixmaps"
+mkdir -p "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps"
 
 cp -r dist/simplelog/* "${DEB_ROOT}/usr/lib/simplelog/"
+
+# App icon — pixmaps (classic) + hicolor (modern icon theme)
+cp dist/simplelog.png "${DEB_ROOT}/usr/share/pixmaps/simplelog.png"
+cp dist/simplelog.png "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/simplelog.png"
 
 # Launcher wrapper so PATH resolves to /usr/bin/simplelog
 cat > "${DEB_ROOT}/usr/bin/simplelog" <<'WRAPPER'
@@ -122,10 +128,11 @@ Description: Multi-source log viewer for CloudWatch, files and stdin
  Features: live tailing, split view, syntax highlighting, search.
 CONTROL
 
-# DEBIAN/postinst — update desktop DB
+# DEBIAN/postinst — update desktop DB and icon cache
 cat > "${DEB_ROOT}/DEBIAN/postinst" <<'POSTINST'
 #!/bin/bash
 update-desktop-database /usr/share/applications 2>/dev/null || true
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 POSTINST
 chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
 
