@@ -540,7 +540,7 @@ class OpenModeWidget(QWidget):
         seg = QFrame()
         seg.setStyleSheet(
             f"QFrame {{ background: {C_CARD}; border: 1px solid {C_DIVIDER};"
-            " border-radius: 8px; }}"
+            f" border-radius: 8px; }}"
         )
         seg_layout = QVBoxLayout(seg)
         seg_layout.setContentsMargins(3, 3, 3, 3)
