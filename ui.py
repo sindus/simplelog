@@ -47,7 +47,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QScrollArea,
     QSpinBox,
     QSplitter,
@@ -482,23 +481,53 @@ def make_card(title: str | None = None) -> tuple[QFrame, QVBoxLayout, QLabel | N
     return frame, layout, title_label
 
 
-# ── Open-mode radio widget ────────────────────────────────────────────────────
+# ── Primary button helper ─────────────────────────────────────────────────────
+
+def _primary_btn(text: str = "") -> QPushButton:
+    """Create a styled primary (accent-coloured) button.
+
+    Uses an inline stylesheet to ensure the correct appearance even inside
+    QScrollArea containers where inherited stylesheets can be unreliable.
+    """
+    btn = QPushButton(text)
+    btn.setObjectName("primary")
+    btn.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {C_ACCENT};
+            color: #000000;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 16px;
+            font-size: 13px;
+            font-weight: bold;
+        }}
+        QPushButton:hover {{
+            background-color: #9dc4ff;
+        }}
+        QPushButton:pressed {{
+            background-color: #6fa0f0;
+        }}
+        QPushButton:disabled {{
+            background-color: {C_DIVIDER};
+            color: #555555;
+        }}
+    """)
+    return btn
+
+
+# ── Open-mode segmented button widget ─────────────────────────────────────────
 
 class OpenModeWidget(QWidget):
-    """Radio group: new tab / vertical split / horizontal split."""
+    """Segmented button group: new tab / vertical split / horizontal split."""
 
-    _RADIO_STYLE = (
-        f"QRadioButton {{ color: {C_TEXT}; font-size: 12px;"
-        "  background: transparent; border: none; spacing: 6px; }"
-        f"QRadioButton::indicator {{ width: 14px; height: 14px; }}"
-    )
+    _MODES = ("tab", "vertical", "horizontal")
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background: transparent; border: none;")
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(0, 4, 0, 0)
-        vbox.setSpacing(5)
+        vbox.setSpacing(6)
 
         self._lbl = QLabel()
         self._lbl.setStyleSheet(
@@ -507,16 +536,55 @@ class OpenModeWidget(QWidget):
         )
         vbox.addWidget(self._lbl)
 
-        self._grp = QButtonGroup(self)
-        self._radios: dict[str, QRadioButton] = {}
-        for mode in ("tab", "vertical", "horizontal"):
-            rb = QRadioButton()
-            rb.setStyleSheet(self._RADIO_STYLE)
-            self._grp.addButton(rb)
-            vbox.addWidget(rb)
-            self._radios[mode] = rb
+        # Segmented button container
+        seg = QFrame()
+        seg.setStyleSheet(
+            f"QFrame {{ background: {C_CARD}; border: 1px solid {C_DIVIDER};"
+            " border-radius: 8px; }}"
+        )
+        seg_layout = QVBoxLayout(seg)
+        seg_layout.setContentsMargins(3, 3, 3, 3)
+        seg_layout.setSpacing(2)
 
-        self._radios["tab"].setChecked(True)
+        self._grp = QButtonGroup(self)
+        self._btns: dict[str, QPushButton] = {}
+        n = len(self._MODES)
+        for idx, mode in enumerate(self._MODES):
+            btn = QPushButton()
+            btn.setCheckable(True)
+            # Per-position border-radius so the group looks connected
+            if idx == 0:
+                r = "border-radius: 5px 5px 3px 3px;"
+            elif idx == n - 1:
+                r = "border-radius: 3px 3px 5px 5px;"
+            else:
+                r = "border-radius: 3px;"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    color: {C_MUTED};
+                    font-size: 12px;
+                    padding: 7px 10px;
+                    text-align: left;
+                    {r}
+                }}
+                QPushButton:checked {{
+                    background: {C_SEL_BG};
+                    color: {C_ACCENT};
+                    font-weight: 600;
+                }}
+                QPushButton:hover:!checked {{
+                    background: rgba(255,255,255,0.05);
+                    color: {C_TEXT};
+                }}
+            """)
+            self._grp.addButton(btn, idx)
+            seg_layout.addWidget(btn)
+            self._btns[mode] = btn
+
+        self._btns["tab"].setChecked(True)
+        vbox.addWidget(seg)
 
         _key = id(self)
         i18n.register(_key, self.retranslate)
@@ -524,16 +592,16 @@ class OpenModeWidget(QWidget):
         self.retranslate()
 
     def get_mode(self) -> str:
-        for mode, rb in self._radios.items():
-            if rb.isChecked():
+        for mode, btn in self._btns.items():
+            if btn.isChecked():
                 return mode
         return "tab"
 
     def retranslate(self) -> None:
         self._lbl.setText(i18n.tr("open_as").upper())
-        self._radios["tab"].setText(i18n.tr("open_mode_tab"))
-        self._radios["vertical"].setText(i18n.tr("open_mode_vertical"))
-        self._radios["horizontal"].setText(i18n.tr("open_mode_horizontal"))
+        self._btns["tab"].setText(i18n.tr("open_mode_tab"))
+        self._btns["vertical"].setText(i18n.tr("open_mode_vertical"))
+        self._btns["horizontal"].setText(i18n.tr("open_mode_horizontal"))
 
 
 # ── CloudWatchPanel ────────────────────────────────────────────────────────────
@@ -593,8 +661,7 @@ class CloudWatchPanel(QWidget):
         self.region_combo.setEditable(True)
         self.region_combo.addItems(self._REGIONS)
 
-        self.connect_btn = QPushButton()
-        self.connect_btn.setObjectName("primary")
+        self.connect_btn = _primary_btn()
         self.connect_btn.clicked.connect(self._on_connect)
 
         self._lbl_profile = _field_label("")
@@ -647,8 +714,7 @@ class CloudWatchPanel(QWidget):
         self._open_mode_w = OpenModeWidget()
         self._get_open_mode = self._open_mode_w.get_mode
 
-        self.open_btn = QPushButton()
-        self.open_btn.setObjectName("primary")
+        self.open_btn = _primary_btn()
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self._on_open_clicked)
 
@@ -689,17 +755,18 @@ class CloudWatchPanel(QWidget):
         self.group_search.setPlaceholderText(i18n.tr("cw_search_groups"))
         self.filter_input.setPlaceholderText(i18n.tr("cw_filter_ph"))
         self.open_btn.setText(i18n.tr("cw_open"))
-        # connect_btn: keep current state text (Connect/Connecting/Refresh)
-        if self.connect_btn.text() in ("Connect", "Connecter"):
-            self.connect_btn.setText(i18n.tr("cw_connect"))
-        elif self.connect_btn.text() in ("Refresh", "Actualiser"):
-            self.connect_btn.setText(i18n.tr("cw_refresh"))
+        # connect_btn: derive label from connection state, not from current text
+        if not getattr(self, "_connecting", False):
+            self.connect_btn.setText(
+                i18n.tr("cw_refresh") if self._client else i18n.tr("cw_connect")
+            )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _on_connect(self):
         profile = self.profile_combo.currentText()
         region  = self.region_combo.currentText()
+        self._connecting = True
         self.connect_btn.setEnabled(False)
         self.connect_btn.setText(i18n.tr("cw_connecting"))
         try:
@@ -714,6 +781,7 @@ class CloudWatchPanel(QWidget):
             QMessageBox.critical(self, i18n.tr("err_connection"), str(exc))
             self.connect_btn.setText(i18n.tr("cw_connect"))
         finally:
+            self._connecting = False
             self.connect_btn.setEnabled(True)
 
     def _populate_groups(self, groups: list[str]):
@@ -815,8 +883,7 @@ class FilePanel(QWidget):
         self._open_mode_w = OpenModeWidget()
         self._get_open_mode = self._open_mode_w.get_mode
 
-        self._browse_btn = QPushButton()
-        self._browse_btn.setObjectName("primary")
+        self._browse_btn = _primary_btn()
         self._browse_btn.clicked.connect(self._on_browse)
 
         cl.addWidget(self._desc_lbl)
