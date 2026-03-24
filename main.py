@@ -15,10 +15,12 @@ import sys
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
+import i18n
 from ui import MainWindow
 from ui import apply_style as apply_dark_palette
+from version import __version__  # noqa: F401  (imported for UpdateWorker)
 
 # Unique socket name for this app's IPC channel
 _SOCKET_NAME = "simplelog-ipc-v1"
@@ -138,8 +140,11 @@ def main():
             if os.path.isfile(path):
                 window.open_file_tab(path, args.tail, args.split)
             else:
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(window, "File not found", f"Cannot open: {path}")
+                QMessageBox.warning(
+                    window,
+                    i18n.tr("err_file_not_found"),
+                    i18n.tr("err_cannot_open", path=path),
+                )
 
     QTimer.singleShot(100, _open_initial_tabs)
 

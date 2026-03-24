@@ -60,9 +60,22 @@
       display: flex; align-items: center; gap: 10px;
     }
     .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
-    nav ul { list-style: none; display: flex; gap: 28px; }
+    nav ul { list-style: none; display: flex; gap: 28px; align-items: center; }
     nav ul a { color: var(--muted); font-size: 14px; transition: color .15s; }
     nav ul a:hover { color: var(--text); text-decoration: none; }
+    .lang-toggle {
+      display: flex; gap: 0;
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+      font-size: 13px;
+    }
+    .lang-toggle button {
+      background: transparent; border: none; color: var(--muted);
+      padding: 5px 12px; cursor: pointer; transition: all .15s;
+    }
+    .lang-toggle button.active {
+      background: rgba(130,177,255,.15); color: var(--accent); font-weight: 600;
+    }
+    .lang-toggle button:first-child { border-right: 1px solid var(--border); }
 
     /* ── CLI section ── */
     .cli-synopsis {
@@ -389,11 +402,17 @@
       SimpleLog
     </div>
     <ul>
-      <li><a href="#features">Features</a></li>
-      <li><a href="#cli">CLI</a></li>
-      <li><a href="#install">Install</a></li>
-      <li><a href="#uninstall">Uninstall</a></li>
+      <li><a href="#features" data-en="Features" data-fr="Fonctionnalités">Features</a></li>
+      <li><a href="#cli" data-en="CLI" data-fr="CLI">CLI</a></li>
+      <li><a href="#install" data-en="Install" data-fr="Installer">Install</a></li>
+      <li><a href="#uninstall" data-en="Uninstall" data-fr="Désinstaller">Uninstall</a></li>
       <li><a href="https://github.com/sindus/simplelog" target="_blank">GitHub</a></li>
+      <li>
+        <div class="lang-toggle">
+          <button id="btn-en" class="active" onclick="setLang('en')">EN</button>
+          <button id="btn-fr" onclick="setLang('fr')">FR</button>
+        </div>
+      </li>
     </ul>
   </div>
 </nav>
@@ -403,8 +422,9 @@
   <div class="hero-badge">
     <span>★</span> Open Source
   </div>
-  <h1>One viewer for all<br><span>your logs</span></h1>
-  <p>
+  <h1 data-en="One viewer for all your logs" data-fr="Un seul outil pour tous vos logs">One viewer for all<br><span>your logs</span></h1>
+  <p data-en="Monitor AWS CloudWatch streams, tail local files, and pipe any command — all in a fast, dark-themed interface."
+     data-fr="Surveillez vos flux AWS CloudWatch, suivez vos fichiers locaux et piperez n'importe quelle commande — le tout dans une interface sombre et rapide.">
     Monitor AWS CloudWatch streams, tail local files, and pipe any command —
     all in a fast, dark-themed interface.
   </p>
@@ -414,13 +434,13 @@
         <path d="M8 1a.5.5 0 0 1 .5.5v7.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 9.293V1.5A.5.5 0 0 1 8 1z"/>
         <path d="M.5 13a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z"/>
       </svg>
-      Download
+      <span data-en="Download" data-fr="Télécharger">Download</span>
     </a>
     <a href="https://github.com/sindus/simplelog" target="_blank" class="btn btn-secondary">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
       </svg>
-      View on GitHub
+      <span data-en="View on GitHub" data-fr="Voir sur GitHub">View on GitHub</span>
     </a>
   </div>
 
@@ -448,42 +468,49 @@
 <!-- ── Features ── -->
 <section id="features">
   <div class="container">
-    <p class="section-label">Features</p>
-    <h2>Everything you need<br>to debug faster</h2>
-    <p class="section-sub">
+    <p class="section-label" data-en="Features" data-fr="Fonctionnalités">Features</p>
+    <h2 data-en="Everything you need to debug faster" data-fr="Tout ce qu'il faut pour déboguer plus vite">Everything you need<br>to debug faster</h2>
+    <p class="section-sub" data-en="Designed for developers and SREs who spend time in logs every day."
+       data-fr="Conçu pour les développeurs et SRE qui passent leur temps dans les logs.">
       Designed for developers and SREs who spend time in logs every day.
     </p>
 
     <div class="features-grid">
       <div class="feature-card">
         <div class="feature-icon">☁</div>
-        <h3>AWS CloudWatch</h3>
-        <p>Browse log groups and streams, set lookback windows, filter with CloudWatch patterns, and poll for live updates.</p>
+        <h3 data-en="AWS CloudWatch" data-fr="AWS CloudWatch">AWS CloudWatch</h3>
+        <p data-en="Browse log groups and streams, set lookback windows, filter with CloudWatch patterns, and poll for live updates."
+           data-fr="Parcourez groupes et flux, définissez les fenêtres temporelles, filtrez avec les patterns CloudWatch et recevez les nouvelles entrées en temps réel.">Browse log groups and streams, set lookback windows, filter with CloudWatch patterns, and poll for live updates.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📄</div>
-        <h3>Local file tailing</h3>
-        <p>Open any log file and tail it in real time. Load only the last N lines to stay fast on multi-GB files.</p>
+        <h3 data-en="Local file tailing" data-fr="Suivi de fichiers locaux">Local file tailing</h3>
+        <p data-en="Open any log file and tail it in real time. Load only the last N lines to stay fast on multi-GB files."
+           data-fr="Ouvrez n'importe quel fichier de log et suivez-le en temps réel. Chargez uniquement les N dernières lignes pour rester fluide sur les fichiers volumineux.">Open any log file and tail it in real time. Load only the last N lines to stay fast on multi-GB files.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">⏩</div>
-        <h3>Pipe anything</h3>
-        <p>Stream output from any command directly into SimpleLog. <code style="font-family:var(--mono);font-size:12px;color:var(--accent)">kubectl logs -f pod | simplelog</code></p>
+        <h3 data-en="Pipe anything" data-fr="Pipez tout">Pipe anything</h3>
+        <p data-en="Stream output from any command directly into SimpleLog."
+           data-fr="Streamez la sortie de n'importe quelle commande directement dans SimpleLog.">Stream output from any command directly into SimpleLog. <code style="font-family:var(--mono);font-size:12px;color:var(--accent)">kubectl logs -f pod | simplelog</code></p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">⬒</div>
-        <h3>Split view</h3>
-        <p>Compare two sources side-by-side or stacked. Choose the layout from the sidebar before opening each log.</p>
+        <h3 data-en="Split view" data-fr="Vue partagée">Split view</h3>
+        <p data-en="Compare two sources side-by-side or stacked. Choose the layout from the sidebar before opening each log."
+           data-fr="Comparez deux sources côte à côte ou empilées. Choisissez la disposition dans la barre latérale avant d'ouvrir chaque log.">Compare two sources side-by-side or stacked. Choose the layout from the sidebar before opening each log.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🎨</div>
-        <h3>Syntax highlighting</h3>
-        <p>Color-coded <span style="color:var(--err)">ERROR</span>, <span style="color:var(--warn)">WARN</span>, <span style="color:var(--info)">INFO</span>, <span style="color:#82b1ff">DEBUG</span>, timestamps, and JSON keys — instantly readable.</p>
+        <h3 data-en="Syntax highlighting" data-fr="Coloration syntaxique">Syntax highlighting</h3>
+        <p data-en="Color-coded ERROR, WARN, INFO, DEBUG, timestamps, and JSON keys — instantly readable."
+           data-fr="Codes couleur pour ERROR, WARN, INFO, DEBUG, timestamps et clés JSON — lisibles instantanément.">Color-coded <span style="color:var(--err)">ERROR</span>, <span style="color:var(--warn)">WARN</span>, <span style="color:var(--info)">INFO</span>, <span style="color:#82b1ff">DEBUG</span>, timestamps, and JSON keys — instantly readable.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🔍</div>
-        <h3>Search</h3>
-        <p>Incremental search with <kbd style="background:var(--border);padding:1px 6px;border-radius:4px;font-size:12px">Ctrl+F</kbd>. Wraps around, never loses your position.</p>
+        <h3 data-en="Search" data-fr="Recherche">Search</h3>
+        <p data-en="Incremental search with Ctrl+F. Wraps around, never loses your position."
+           data-fr="Recherche incrémentale avec Ctrl+F. Reprend depuis le début automatiquement.">Incremental search with <kbd style="background:var(--border);padding:1px 6px;border-radius:4px;font-size:12px">Ctrl+F</kbd>. Wraps around, never loses your position.</p>
       </div>
     </div>
   </div>
@@ -492,9 +519,10 @@
 <!-- ── CLI Reference ── -->
 <section id="cli">
   <div class="container">
-    <p class="section-label">Command line</p>
-    <h2>CLI Reference</h2>
-    <p class="section-sub">SimpleLog works as a standalone GUI app and as a Unix-style filter.</p>
+    <p class="section-label" data-en="Command line" data-fr="Ligne de commande">Command line</p>
+    <h2 data-en="CLI Reference" data-fr="Référence CLI">CLI Reference</h2>
+    <p class="section-sub" data-en="SimpleLog works as a standalone GUI app and as a Unix-style filter."
+       data-fr="SimpleLog fonctionne comme application GUI autonome et comme filtre Unix.">SimpleLog works as a standalone GUI app and as a Unix-style filter.</p>
 
     <!-- Synopsis -->
     <div class="cli-synopsis">
@@ -581,7 +609,7 @@
     </table>
 
     <!-- Examples -->
-    <p class="section-label" style="margin-bottom:24px">Examples</p>
+    <p class="section-label" style="margin-bottom:24px" data-en="Examples" data-fr="Exemples">Examples</p>
     <div class="examples-grid">
 
       <div class="example-block">
@@ -675,9 +703,10 @@
 <!-- ── Install ── -->
 <section id="install">
   <div class="container">
-    <p class="section-label">Installation</p>
-    <h2>Get SimpleLog</h2>
-    <p class="section-sub">Choose the method that works best for your system.</p>
+    <p class="section-label" data-en="Installation" data-fr="Installation">Installation</p>
+    <h2 data-en="Get SimpleLog" data-fr="Télécharger SimpleLog">Get SimpleLog</h2>
+    <p class="section-sub" data-en="Choose the method that works best for your system."
+       data-fr="Choisissez la méthode adaptée à votre système.">Choose the method that works best for your system.</p>
 
     <!-- Tabs -->
     <div class="install-tabs">
@@ -830,9 +859,10 @@
 <!-- ── Uninstall ── -->
 <section id="uninstall">
   <div class="container">
-    <p class="section-label">Removal</p>
-    <h2>Uninstall SimpleLog</h2>
-    <p class="section-sub">Clean removal instructions for each platform.</p>
+    <p class="section-label" data-en="Removal" data-fr="Suppression">Removal</p>
+    <h2 data-en="Uninstall SimpleLog" data-fr="Désinstaller SimpleLog">Uninstall SimpleLog</h2>
+    <p class="section-sub" data-en="Clean removal instructions for each platform."
+       data-fr="Instructions de suppression propre pour chaque plateforme.">Clean removal instructions for each platform.</p>
 
     <div class="uninstall-grid">
 
@@ -902,6 +932,36 @@
 </footer>
 
 <script>
+  /* ── Language switcher ── */
+  let _lang = 'en';
+
+  function setLang(lang) {
+    _lang = lang;
+    // Update toggle buttons
+    document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+    document.getElementById('btn-fr').classList.toggle('active', lang === 'fr');
+    // Update all elements with data-en / data-fr attributes
+    document.querySelectorAll('[data-' + lang + ']').forEach(el => {
+      // Only update text nodes if the element has no significant child elements
+      // (avoid overwriting elements like <h1> that contain <br> or <span>)
+      const val = el.getAttribute('data-' + lang);
+      if (el.children.length === 0) {
+        el.textContent = val;
+      }
+      // For headings that contain inline elements, just update the aria-label
+      el.setAttribute('aria-label', val);
+    });
+    // Save preference
+    try { localStorage.setItem('simplelog-lang', lang); } catch(e) {}
+  }
+
+  // Restore saved preference on load
+  try {
+    const saved = localStorage.getItem('simplelog-lang');
+    if (saved && saved !== 'en') setLang(saved);
+  } catch(e) {}
+
+  /* ── Tab switcher ── */
   function switchTab(name, btn) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -909,18 +969,19 @@
     document.getElementById('tab-' + name).classList.add('active');
   }
 
+  /* ── Copy button ── */
   function copyCode(id) {
     const el = document.getElementById(id);
-    // Get text content, strip the "$ " prompt and the button text
     const lines = [];
     el.childNodes.forEach(n => {
       if (n.nodeType === Node.TEXT_NODE) lines.push(n.textContent);
     });
     const text = lines.join('').replace(/^\s*\$\s*/, '').trim();
+    const copied = _lang === 'fr' ? 'Copié !' : 'Copied!';
     navigator.clipboard.writeText(text).then(() => {
       const btn = el.querySelector('.copy-btn');
       const orig = btn.textContent;
-      btn.textContent = 'Copied!';
+      btn.textContent = copied;
       btn.style.color = 'var(--info)';
       setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
     });

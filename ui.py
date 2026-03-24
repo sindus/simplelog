@@ -12,11 +12,14 @@ from PyQt6.QtCore import (
     QRectF,
     QSize,
     Qt,
+    QUrl,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
+    QAction,
     QBrush,
     QColor,
+    QDesktopServices,
     QKeySequence,
     QPainter,
     QPainterPath,
@@ -32,6 +35,8 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -53,6 +58,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+import i18n
 
 try:
     from PyQt6.QtCore import QByteArray
@@ -280,6 +287,42 @@ def apply_style(app: QApplication) -> None:
             color: {C_MUTED};
             font-size: 12px;
         }}
+        QMenuBar {{
+            background: {C_RAIL};
+            color: {C_TEXT};
+            border-bottom: 1px solid {C_DIVIDER};
+            font-size: 13px;
+            padding: 2px 4px;
+        }}
+        QMenuBar::item {{
+            background: transparent;
+            padding: 5px 12px;
+            border-radius: 4px;
+        }}
+        QMenuBar::item:selected {{
+            background: rgba(255,255,255,0.08);
+            color: {C_ACCENT};
+        }}
+        QMenu {{
+            background: #1e1e1e;
+            border: 1px solid {C_DIVIDER};
+            border-radius: 8px;
+            padding: 4px 0;
+            font-size: 13px;
+        }}
+        QMenu::item {{
+            padding: 8px 24px 8px 16px;
+            color: {C_TEXT};
+        }}
+        QMenu::item:selected {{
+            background: {C_SEL_BG};
+            color: {C_ACCENT};
+        }}
+        QMenu::separator {{
+            height: 1px;
+            background: {C_DIVIDER};
+            margin: 4px 8px;
+        }}
     """)
 
 
@@ -418,8 +461,8 @@ class NavRail(QWidget):
 
 # ── make_card helper ───────────────────────────────────────────────────────────
 
-def make_card(title: str | None = None) -> tuple[QFrame, QVBoxLayout]:
-    """Return (frame, layout) for a Material card."""
+def make_card(title: str | None = None) -> tuple[QFrame, QVBoxLayout, QLabel | None]:
+    """Return (frame, layout, title_label | None) for a Material card."""
     frame = QFrame()
     frame.setStyleSheet(
         f"QFrame {{ background: {C_CARD}; border: 1px solid {C_DIVIDER};"
@@ -428,65 +471,69 @@ def make_card(title: str | None = None) -> tuple[QFrame, QVBoxLayout]:
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(16, 16, 16, 16)
     layout.setSpacing(8)
+    title_label: QLabel | None = None
     if title:
-        lbl = QLabel(title.upper())
-        lbl.setStyleSheet(
+        title_label = QLabel(title.upper())
+        title_label.setStyleSheet(
             f"color: {C_ACCENT}; font-size: 11px; font-weight: 600;"
             "letter-spacing: 1px; border: none; background: transparent;"
         )
-        layout.addWidget(lbl)
-    return frame, layout
+        layout.addWidget(title_label)
+    return frame, layout, title_label
 
 
-# ── Open-mode radio helper ────────────────────────────────────────────────────
+# ── Open-mode radio widget ────────────────────────────────────────────────────
 
-def _make_open_mode_widget() -> tuple[QWidget, callable[[], str]]:
-    """Radio group to choose how a log opens: new tab, vertical split, horizontal split.
+class OpenModeWidget(QWidget):
+    """Radio group: new tab / vertical split / horizontal split."""
 
-    Returns (widget_to_embed, get_mode_fn).
-    get_mode_fn() returns one of "tab" | "vertical" | "horizontal".
-    """
-    container = QWidget()
-    container.setStyleSheet("background: transparent; border: none;")
-    vbox = QVBoxLayout(container)
-    vbox.setContentsMargins(0, 4, 0, 0)
-    vbox.setSpacing(5)
-
-    lbl = QLabel("Open as")
-    lbl.setStyleSheet(
-        f"color: {C_MUTED}; font-size: 11px; font-weight: 600;"
-        " letter-spacing: 1px; background: transparent; border: none;"
-    )
-    vbox.addWidget(lbl)
-
-    radio_style = (
+    _RADIO_STYLE = (
         f"QRadioButton {{ color: {C_TEXT}; font-size: 12px;"
         "  background: transparent; border: none; spacing: 6px; }"
         f"QRadioButton::indicator {{ width: 14px; height: 14px; }}"
     )
 
-    grp = QButtonGroup(container)
-    radios: dict[str, QRadioButton] = {}
-    for mode, label in [
-        ("tab",        "New tab"),
-        ("vertical",   "Split ↔  side by side"),
-        ("horizontal", "Split ↕  top / bottom"),
-    ]:
-        rb = QRadioButton(label)
-        rb.setStyleSheet(radio_style)
-        grp.addButton(rb)
-        vbox.addWidget(rb)
-        radios[mode] = rb
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent; border: none;")
+        vbox = QVBoxLayout(self)
+        vbox.setContentsMargins(0, 4, 0, 0)
+        vbox.setSpacing(5)
 
-    radios["tab"].setChecked(True)
+        self._lbl = QLabel()
+        self._lbl.setStyleSheet(
+            f"color: {C_MUTED}; font-size: 11px; font-weight: 600;"
+            " letter-spacing: 1px; background: transparent; border: none;"
+        )
+        vbox.addWidget(self._lbl)
 
-    def get_mode() -> str:
-        for mode, rb in radios.items():
+        self._grp = QButtonGroup(self)
+        self._radios: dict[str, QRadioButton] = {}
+        for mode in ("tab", "vertical", "horizontal"):
+            rb = QRadioButton()
+            rb.setStyleSheet(self._RADIO_STYLE)
+            self._grp.addButton(rb)
+            vbox.addWidget(rb)
+            self._radios[mode] = rb
+
+        self._radios["tab"].setChecked(True)
+
+        _key = id(self)
+        i18n.register(_key, self.retranslate)
+        self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
+        self.retranslate()
+
+    def get_mode(self) -> str:
+        for mode, rb in self._radios.items():
             if rb.isChecked():
                 return mode
         return "tab"
 
-    return container, get_mode
+    def retranslate(self) -> None:
+        self._lbl.setText(i18n.tr("open_as").upper())
+        self._radios["tab"].setText(i18n.tr("open_mode_tab"))
+        self._radios["vertical"].setText(i18n.tr("open_mode_vertical"))
+        self._radios["horizontal"].setText(i18n.tr("open_mode_horizontal"))
 
 
 # ── CloudWatchPanel ────────────────────────────────────────────────────────────
@@ -506,6 +553,9 @@ class CloudWatchPanel(QWidget):
         self._client = None
         self._all_groups: list[str] = []
         self._build_ui()
+        _key = id(self)
+        i18n.register(_key, self.retranslate)
+        self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -525,15 +575,15 @@ class CloudWatchPanel(QWidget):
         vbox.setSpacing(12)
 
         # Title
-        title = QLabel("CloudWatch")
-        title.setStyleSheet(
+        self._title_lbl = QLabel()
+        self._title_lbl.setStyleSheet(
             f"color: {C_TEXT}; font-size: 18px; font-weight: bold;"
             "background: transparent; border: none;"
         )
-        vbox.addWidget(title)
+        vbox.addWidget(self._title_lbl)
 
         # ── CONNECTION card ──
-        card, cl = make_card("Connection")
+        card, cl, self._lbl_connection = make_card(i18n.tr("cw_card_connection"))
         profiles = cloudwatch.list_profiles()
         self.profile_combo = QComboBox()
         self.profile_combo.addItem("(default)")
@@ -543,21 +593,22 @@ class CloudWatchPanel(QWidget):
         self.region_combo.setEditable(True)
         self.region_combo.addItems(self._REGIONS)
 
-        self.connect_btn = QPushButton("Connect")
+        self.connect_btn = QPushButton()
         self.connect_btn.setObjectName("primary")
         self.connect_btn.clicked.connect(self._on_connect)
 
-        cl.addWidget(_field_label("Profile"))
+        self._lbl_profile = _field_label("")
+        self._lbl_region  = _field_label("")
+        cl.addWidget(self._lbl_profile)
         cl.addWidget(self.profile_combo)
-        cl.addWidget(_field_label("Region"))
+        cl.addWidget(self._lbl_region)
         cl.addWidget(self.region_combo)
         cl.addWidget(self.connect_btn)
         vbox.addWidget(card)
 
         # ── LOG GROUPS card ──
-        card2, gl = make_card("Log Groups")
+        card2, gl, self._lbl_groups = make_card(i18n.tr("cw_card_groups"))
         self.group_search = QLineEdit()
-        self.group_search.setPlaceholderText("Search groups…")
         self.group_search.textChanged.connect(self._filter_groups)
         self.group_list = QListWidget()
         self.group_list.setMaximumHeight(180)
@@ -568,7 +619,7 @@ class CloudWatchPanel(QWidget):
         vbox.addWidget(card2)
 
         # ── LOG STREAMS card ──
-        card3, sl = make_card("Log Streams")
+        card3, sl, self._lbl_streams = make_card(i18n.tr("cw_card_streams"))
         self.stream_list = QListWidget()
         self.stream_list.setMaximumHeight(150)
 
@@ -576,7 +627,7 @@ class CloudWatchPanel(QWidget):
         vbox.addWidget(card3)
 
         # ── OPTIONS card ──
-        card4, ol = make_card("Options")
+        card4, ol, self._lbl_options = make_card(i18n.tr("cw_card_options"))
 
         self.lookback_combo = QComboBox()
         for label, secs in [
@@ -592,22 +643,25 @@ class CloudWatchPanel(QWidget):
         self.interval_spin.setSuffix(" s")
 
         self.filter_input = QLineEdit()
-        self.filter_input.setPlaceholderText("CloudWatch filter pattern…")
 
-        open_mode_widget, self._get_open_mode = _make_open_mode_widget()
+        self._open_mode_w = OpenModeWidget()
+        self._get_open_mode = self._open_mode_w.get_mode
 
-        self.open_btn = QPushButton("Open ↗")
+        self.open_btn = QPushButton()
         self.open_btn.setObjectName("primary")
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self._on_open_clicked)
 
-        ol.addWidget(_field_label("Load history"))
+        self._lbl_lookback = _field_label("")
+        self._lbl_poll     = _field_label("")
+        self._lbl_filter   = _field_label("")
+        ol.addWidget(self._lbl_lookback)
         ol.addWidget(self.lookback_combo)
-        ol.addWidget(_field_label("Poll interval"))
+        ol.addWidget(self._lbl_poll)
         ol.addWidget(self.interval_spin)
-        ol.addWidget(_field_label("Filter pattern"))
+        ol.addWidget(self._lbl_filter)
         ol.addWidget(self.filter_input)
-        ol.addWidget(open_mode_widget)
+        ol.addWidget(self._open_mode_w)
         ol.addWidget(self.open_btn)
         vbox.addWidget(card4)
 
@@ -615,6 +669,31 @@ class CloudWatchPanel(QWidget):
 
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        self._title_lbl.setText(i18n.tr("cw_title"))
+        if self._lbl_connection:
+            self._lbl_connection.setText(i18n.tr("cw_card_connection").upper())
+        if self._lbl_groups:
+            self._lbl_groups.setText(i18n.tr("cw_card_groups").upper())
+        if self._lbl_streams:
+            self._lbl_streams.setText(i18n.tr("cw_card_streams").upper())
+        if self._lbl_options:
+            self._lbl_options.setText(i18n.tr("cw_card_options").upper())
+        self._lbl_profile.setText(i18n.tr("cw_field_profile"))
+        self._lbl_region.setText(i18n.tr("cw_field_region"))
+        self._lbl_lookback.setText(i18n.tr("cw_field_lookback"))
+        self._lbl_poll.setText(i18n.tr("cw_field_poll"))
+        self._lbl_filter.setText(i18n.tr("cw_field_filter"))
+        self.group_search.setPlaceholderText(i18n.tr("cw_search_groups"))
+        self.filter_input.setPlaceholderText(i18n.tr("cw_filter_ph"))
+        self.open_btn.setText(i18n.tr("cw_open"))
+        # connect_btn: keep current state text (Connect/Connecting/Refresh)
+        if self.connect_btn.text() in ("Connect", "Connecter"):
+            self.connect_btn.setText(i18n.tr("cw_connect"))
+        elif self.connect_btn.text() in ("Refresh", "Actualiser"):
+            self.connect_btn.setText(i18n.tr("cw_refresh"))
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -622,7 +701,7 @@ class CloudWatchPanel(QWidget):
         profile = self.profile_combo.currentText()
         region  = self.region_combo.currentText()
         self.connect_btn.setEnabled(False)
-        self.connect_btn.setText("Connecting…")
+        self.connect_btn.setText(i18n.tr("cw_connecting"))
         try:
             self._client = cloudwatch.make_client(
                 None if profile == "(default)" else profile, region
@@ -630,10 +709,10 @@ class CloudWatchPanel(QWidget):
             groups = cloudwatch.list_log_groups(self._client)
             self._all_groups = groups
             self._populate_groups(groups)
-            self.connect_btn.setText("Refresh")
+            self.connect_btn.setText(i18n.tr("cw_refresh"))
         except Exception as exc:
-            QMessageBox.critical(self, "Connection error", str(exc))
-            self.connect_btn.setText("Connect")
+            QMessageBox.critical(self, i18n.tr("err_connection"), str(exc))
+            self.connect_btn.setText(i18n.tr("cw_connect"))
         finally:
             self.connect_btn.setEnabled(True)
 
@@ -659,7 +738,7 @@ class CloudWatchPanel(QWidget):
                 self.stream_list.addItem(s)
             self.stream_list.setCurrentRow(0)
         except Exception as exc:
-            QMessageBox.warning(self, "Error loading streams", str(exc))
+            QMessageBox.warning(self, i18n.tr("err_streams"), str(exc))
         self.open_btn.setEnabled(True)
 
     def _on_open_clicked(self):
@@ -692,6 +771,9 @@ class FilePanel(QWidget):
         super().__init__(parent)
         self._recent: list[str] = []
         self._build_ui()
+        _key = id(self)
+        i18n.register(_key, self.retranslate)
+        self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
 
     def _build_ui(self):
         vbox = QVBoxLayout(self)
@@ -700,59 +782,56 @@ class FilePanel(QWidget):
         self.setFixedWidth(268)
         self.setStyleSheet(f"background: {C_SIDE};")
 
-        title = QLabel("Log Files")
-        title.setStyleSheet(
+        self._title_lbl = QLabel()
+        self._title_lbl.setStyleSheet(
             f"color: {C_TEXT}; font-size: 18px; font-weight: bold;"
             "background: transparent; border: none;"
         )
-        vbox.addWidget(title)
+        vbox.addWidget(self._title_lbl)
 
         # ── OPEN FILE card ──
-        card, cl = make_card("Open File")
-        desc = QLabel("Browse your filesystem to open any log file.")
-        desc.setWordWrap(True)
-        desc.setStyleSheet(
+        card, cl, self._lbl_card_open = make_card(i18n.tr("file_card_open"))
+        self._desc_lbl = QLabel()
+        self._desc_lbl.setWordWrap(True)
+        self._desc_lbl.setStyleSheet(
             f"color: {C_MUTED}; font-size: 12px; background: transparent; border: none;"
         )
 
         # Tail lines selector
         tail_row = QHBoxLayout()
         tail_row.setSpacing(8)
-        tail_lbl = QLabel("Last lines:")
-        tail_lbl.setStyleSheet(
+        self._tail_lbl = QLabel()
+        self._tail_lbl.setStyleSheet(
             f"color: {C_MUTED}; font-size: 12px; background: transparent; border: none;"
         )
         self._tail_spin = QSpinBox()
         self._tail_spin.setRange(1, 500_000)
         self._tail_spin.setValue(100)
         self._tail_spin.setSingleStep(100)
-        self._tail_spin.setToolTip(
-            "Number of lines to load from the end of the file.\n"
-            "Lower values prevent freezing on large files."
-        )
-        tail_row.addWidget(tail_lbl)
+        tail_row.addWidget(self._tail_lbl)
         tail_row.addWidget(self._tail_spin)
         tail_row.addStretch()
 
-        open_mode_widget, self._get_open_mode = _make_open_mode_widget()
+        self._open_mode_w = OpenModeWidget()
+        self._get_open_mode = self._open_mode_w.get_mode
 
-        browse_btn = QPushButton("Browse & Open ↗")
-        browse_btn.setObjectName("primary")
-        browse_btn.clicked.connect(self._on_browse)
+        self._browse_btn = QPushButton()
+        self._browse_btn.setObjectName("primary")
+        self._browse_btn.clicked.connect(self._on_browse)
 
-        cl.addWidget(desc)
+        cl.addWidget(self._desc_lbl)
         cl.addLayout(tail_row)
-        cl.addWidget(open_mode_widget)
-        cl.addWidget(browse_btn)
+        cl.addWidget(self._open_mode_w)
+        cl.addWidget(self._browse_btn)
         vbox.addWidget(card)
 
         # ── RECENT FILES card ──
-        card2, rl = make_card("Recent Files")
+        card2, rl, self._lbl_card_recent = make_card(i18n.tr("file_card_recent"))
         self.recent_list = QListWidget()
         self.recent_list.setMaximumHeight(220)
         self.recent_list.itemDoubleClicked.connect(self._on_recent_double_click)
 
-        self.empty_label = QLabel("No recent files")
+        self.empty_label = QLabel()
         self.empty_label.setStyleSheet(
             "color: #4c4c4c; font-size: 12px; background: transparent; border: none;"
         )
@@ -763,7 +842,19 @@ class FilePanel(QWidget):
         vbox.addWidget(card2)
 
         vbox.addStretch()
+        self.retranslate()
         self._refresh_recent_ui()
+
+    def retranslate(self) -> None:
+        self._title_lbl.setText(i18n.tr("file_title"))
+        if self._lbl_card_open:
+            self._lbl_card_open.setText(i18n.tr("file_card_open").upper())
+        if self._lbl_card_recent:
+            self._lbl_card_recent.setText(i18n.tr("file_card_recent").upper())
+        self._desc_lbl.setText(i18n.tr("file_desc"))
+        self._tail_lbl.setText(i18n.tr("file_last_lines"))
+        self._browse_btn.setText(i18n.tr("file_browse"))
+        self.empty_label.setText(i18n.tr("file_no_recent"))
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -782,7 +873,11 @@ class FilePanel(QWidget):
         if os.path.isfile(path):
             self._open_path(path)
         else:
-            QMessageBox.warning(self, "File not found", f"Cannot open:\n{path}")
+            QMessageBox.warning(
+                self,
+                i18n.tr("err_file_not_found"),
+                i18n.tr("err_cannot_open", path=path),
+            )
 
     def _open_path(self, path: str):
         if path in self._recent:
@@ -872,6 +967,9 @@ class LogViewer(QWidget):
         self._source_type = source_type
         self._line_count  = 0
         self._build_ui()
+        _key = id(self)
+        i18n.register(_key, self.retranslate)
+        self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -901,29 +999,28 @@ class LogViewer(QWidget):
             f"font-weight: bold; color: {C_TEXT}; background: transparent; border: none;"
         )
 
-        self.line_badge = QLabel("0 lines")
+        self.line_badge = QLabel(i18n.tr("viewer_lines", n=0))
         self.line_badge.setStyleSheet(
             f"background: {C_CARD}; color: {C_MUTED}; border-radius: 10px;"
             "padding: 2px 10px; font-size: 11px; border: none;"
         )
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search…  Ctrl+F")
         self.search_input.setMaximumWidth(220)
         self.search_input.returnPressed.connect(self._search_next)
 
-        self.autoscroll_cb = QCheckBox("Auto-scroll")
+        self.autoscroll_cb = QCheckBox()
         self.autoscroll_cb.setChecked(True)
 
-        self.timestamps_cb = QCheckBox("Timestamps")
+        self.timestamps_cb = QCheckBox()
         self.timestamps_cb.setChecked(True)
 
-        self.clear_btn = QPushButton("Clear")
+        self.clear_btn = QPushButton()
         self.clear_btn.setObjectName("danger")
         self.clear_btn.setFixedHeight(32)
         self.clear_btn.clicked.connect(self.clear)
 
-        self.stop_btn = QPushButton("Stop")
+        self.stop_btn = QPushButton()
         self.stop_btn.setFixedHeight(32)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_requested)
@@ -955,6 +1052,18 @@ class LogViewer(QWidget):
         # Ctrl+F shortcut
         sc = QShortcut(QKeySequence("Ctrl+F"), self)
         sc.activated.connect(lambda: self.search_input.setFocus())
+
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        src_key = f"src_{self._source_type}"
+        self._source_badge.setText(i18n.tr(src_key))
+        self.autoscroll_cb.setText(i18n.tr("viewer_autoscroll"))
+        self.timestamps_cb.setText(i18n.tr("viewer_timestamps"))
+        self.clear_btn.setText(i18n.tr("viewer_clear"))
+        self.stop_btn.setText(i18n.tr("viewer_stop"))
+        self.search_input.setPlaceholderText(i18n.tr("viewer_search_ph"))
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -993,7 +1102,7 @@ class LogViewer(QWidget):
             cursor.insertText(line, default_fmt)
             self._line_count += 1
 
-        self.line_badge.setText(f"{self._line_count:,} lines")
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
         if self.autoscroll_cb.isChecked():
             sb = self.text_edit.verticalScrollBar()
             sb.setValue(sb.maximum())
@@ -1001,7 +1110,7 @@ class LogViewer(QWidget):
     def clear(self):
         self.text_edit.clear()
         self._line_count = 0
-        self.line_badge.setText("0 lines")
+        self.line_badge.setText(i18n.tr("viewer_lines", n=0))
 
     def _insert_separator(self):
         from datetime import datetime
@@ -1016,7 +1125,7 @@ class LogViewer(QWidget):
         cursor.insertText(sep, fmt)
         cursor.setCharFormat(QTextCharFormat())  # reset to default
         self._line_count += 1
-        self.line_badge.setText(f"{self._line_count:,} lines")
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
         sb = self.text_edit.verticalScrollBar()
         sb.setValue(sb.maximum())
 
@@ -1043,7 +1152,9 @@ class MainWindow(QMainWindow):
         self._workers: dict[int, object] = {}
         self._panes: list[QTabWidget] = []
         self._active_pane: QTabWidget | None = None
+        self._update_worker = None  # UpdateWorker instance (kept alive)
         self._build_ui()
+        self._build_menubar()
 
     def _build_ui(self):
         # Central container
@@ -1090,7 +1201,200 @@ class MainWindow(QMainWindow):
         # Status bar
         self._status = QStatusBar()
         self.setStatusBar(self._status)
-        self._status.showMessage("Ready")
+        self._status.showMessage(i18n.tr("status_ready"))
+
+    # ── Menu bar ──────────────────────────────────────────────────────────────
+
+    def _build_menubar(self) -> None:
+        mb = self.menuBar()
+
+        # ── File ──
+        self._menu_file = mb.addMenu("")
+        self._act_open = QAction(self)
+        self._act_open.setShortcut(QKeySequence("Ctrl+O"))
+        self._act_open.triggered.connect(self._action_open_file)
+        self._menu_file.addAction(self._act_open)
+
+        self._act_update = QAction(self)
+        self._act_update.triggered.connect(self._action_check_update)
+        self._menu_file.addAction(self._act_update)
+
+        self._menu_file.addSeparator()
+
+        self._act_quit = QAction(self)
+        self._act_quit.setShortcut(QKeySequence("Ctrl+Q"))
+        self._act_quit.triggered.connect(self.close)
+        self._menu_file.addAction(self._act_quit)
+
+        # ── Edit ──
+        self._menu_edit = mb.addMenu("")
+        self._act_copy = QAction(self)
+        self._act_copy.setShortcut(QKeySequence("Ctrl+C"))
+        self._act_copy.triggered.connect(self._action_copy)
+        self._menu_edit.addAction(self._act_copy)
+
+        self._act_paste = QAction(self)
+        self._act_paste.setShortcut(QKeySequence("Ctrl+V"))
+        self._act_paste.triggered.connect(self._action_paste)
+        self._menu_edit.addAction(self._act_paste)
+
+        self._menu_edit.addSeparator()
+
+        self._act_break = QAction(self)
+        self._act_break.setShortcut(QKeySequence("Ctrl+Return"))
+        self._act_break.triggered.connect(self._action_break)
+        self._menu_edit.addAction(self._act_break)
+
+        # ── Language ──
+        self._menu_lang = mb.addMenu("")
+        ag = QButtonGroup(self)  # not actually needed but keeps logic tidy
+        ag  # noqa: B018
+
+        self._act_lang_en = QAction(self)
+        self._act_lang_en.setCheckable(True)
+        self._act_lang_en.triggered.connect(lambda: self._action_set_language("en"))
+        self._menu_lang.addAction(self._act_lang_en)
+
+        self._act_lang_fr = QAction(self)
+        self._act_lang_fr.setCheckable(True)
+        self._act_lang_fr.triggered.connect(lambda: self._action_set_language("fr"))
+        self._menu_lang.addAction(self._act_lang_fr)
+
+        # ── Help ──
+        self._menu_help = mb.addMenu("")
+        self._act_help_ref = QAction(self)
+        self._act_help_ref.triggered.connect(self._action_help)
+        self._menu_help.addAction(self._act_help_ref)
+
+        self._retranslate_menubar()
+
+    def _retranslate_menubar(self) -> None:
+        locale = i18n.get_locale()
+        self._menu_file.setTitle(i18n.tr("menu_file"))
+        self._act_open.setText(i18n.tr("action_open"))
+        self._act_update.setText(i18n.tr("action_update"))
+        self._act_quit.setText(i18n.tr("action_quit"))
+        self._menu_edit.setTitle(i18n.tr("menu_edit"))
+        self._act_copy.setText(i18n.tr("action_copy"))
+        self._act_paste.setText(i18n.tr("action_paste"))
+        self._act_break.setText(i18n.tr("action_break"))
+        self._menu_lang.setTitle(i18n.tr("menu_language"))
+        self._act_lang_en.setText(i18n.tr("lang_english"))
+        self._act_lang_en.setChecked(locale == "en")
+        self._act_lang_fr.setText(i18n.tr("lang_french"))
+        self._act_lang_fr.setChecked(locale == "fr")
+        self._menu_help.setTitle(i18n.tr("menu_help"))
+        self._act_help_ref.setText(i18n.tr("action_help_ref"))
+
+    # ── Menu action handlers ───────────────────────────────────────────────────
+
+    def _action_open_file(self) -> None:
+        """File → Open: browse and open a log file."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            i18n.tr("action_open"),
+            os.path.expanduser("~"),
+            "Log files (*.log *.txt *.out *.err *.json);;All files (*)",
+        )
+        if path and os.path.isfile(path):
+            self.open_file_tab(path)
+            # Also update FilePanel's recent list
+            self._file_panel._open_path(path)
+
+    def _action_check_update(self) -> None:
+        """File → Check for Updates: async GitHub release check."""
+        from version import __version__
+        from workers import UpdateWorker
+
+        self._update_worker = UpdateWorker(__version__)
+        self._update_worker.up_to_date.connect(self._on_up_to_date)
+        self._update_worker.update_available.connect(self._on_update_available)
+        self._update_worker.error.connect(
+            lambda msg: QMessageBox.warning(
+                self, i18n.tr("update_title"), i18n.tr("update_error", error=msg)
+            )
+        )
+        self._act_update.setEnabled(False)
+        self._update_worker.finished.connect(lambda: self._act_update.setEnabled(True))
+        self._update_worker.start()
+
+    def _on_up_to_date(self, version: str) -> None:
+        QMessageBox.information(
+            self,
+            i18n.tr("update_title"),
+            i18n.tr("update_up_to_date", version=version),
+        )
+
+    def _on_update_available(self, latest: str, url: str) -> None:
+        from version import __version__
+        box = QMessageBox(self)
+        box.setWindowTitle(i18n.tr("update_title"))
+        box.setText(i18n.tr("update_available", latest=latest, current=__version__))
+        download_btn = box.addButton(i18n.tr("update_download"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is download_btn:
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _action_copy(self) -> None:
+        """Edit → Copy: copy selected text from active viewer."""
+        viewer = self._active_viewer()
+        if viewer:
+            viewer.text_edit.copy()
+
+    def _action_paste(self) -> None:
+        """Edit → Paste: paste clipboard text into active viewer's search bar."""
+        viewer = self._active_viewer()
+        if viewer:
+            viewer.search_input.setFocus()
+            viewer.search_input.paste()
+
+    def _action_break(self) -> None:
+        """Edit → Break: insert a visual separator in the active viewer."""
+        viewer = self._active_viewer()
+        if viewer:
+            viewer._insert_separator()
+
+    def _action_help(self) -> None:
+        """Help → CLI Reference: show documentation dialog."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(i18n.tr("help_title"))
+        dlg.resize(560, 480)
+        dlg.setStyleSheet(f"background: {C_BG}; color: {C_TEXT};")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(i18n.tr("help_content"))
+        text.setStyleSheet(
+            f"background: {C_CARD}; border: 1px solid {C_DIVIDER}; border-radius: 8px;"
+            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;"
+            f"color: {C_TEXT}; padding: 12px;"
+        )
+        layout.addWidget(text)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(dlg.accept)
+        btns.setStyleSheet(f"color: {C_TEXT};")
+        layout.addWidget(btns)
+
+        dlg.exec()
+
+    def _action_set_language(self, locale: str) -> None:
+        i18n.set_locale(locale)
+        i18n.retranslate_all()
+        self._retranslate_menubar()
+        self._status.showMessage(i18n.tr("status_ready"))
+
+    def _active_viewer(self) -> LogViewer | None:
+        """Return the LogViewer in the currently active tab, or None."""
+        if not self._active_pane:
+            return None
+        widget = self._active_pane.currentWidget()
+        return widget if isinstance(widget, LogViewer) else None
 
     # ── Pane management ───────────────────────────────────────────────────────
 
@@ -1159,9 +1463,7 @@ class MainWindow(QMainWindow):
         worker.error.connect(lambda msg, v=viewer: self._on_error(msg, v))
         if hasattr(worker, "history_done"):
             worker.history_done.connect(
-                lambda n: self._status.showMessage(
-                    f"History loaded: {n:,} events — tailing…"
-                )
+                lambda n: self._status.showMessage(i18n.tr("history_loaded", n=n))
             )
         viewer.stop_requested.connect(lambda v=viewer: self._stop_viewer(v))
         viewer.stop_btn.setEnabled(True)
@@ -1200,8 +1502,8 @@ class MainWindow(QMainWindow):
 
     def _on_error(self, msg: str, viewer: LogViewer):
         self._stop_viewer(viewer)
-        self._status.showMessage(f"Error: {msg}")
-        QMessageBox.critical(self, "Worker error", msg)
+        self._status.showMessage(i18n.tr("err_prefix", msg=msg))
+        QMessageBox.critical(self, i18n.tr("err_worker"), msg)
 
     def closeEvent(self, event):  # noqa: N802
         for worker in list(self._workers.values()):

@@ -1,5 +1,7 @@
+import json
 import sys
 import time
+import urllib.request
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -160,3 +162,36 @@ class StdinWorker(QThread):
             self.status.emit("stdin — stream closed")
         except Exception as e:
             self.error.emit(str(e))
+
+
+class UpdateWorker(QThread):
+    """Checks GitHub releases for a newer version."""
+    update_available = pyqtSignal(str, str)  # (latest_tag, html_url)
+    up_to_date       = pyqtSignal(str)       # (current_version)
+    error            = pyqtSignal(str)
+
+    _API = "https://api.github.com/repos/sindus/simplelog/releases/latest"
+
+    def __init__(self, current_version: str):
+        super().__init__()
+        self._current = current_version
+
+    def run(self):
+        try:
+            req = urllib.request.Request(
+                self._API,
+                headers={"User-Agent": f"SimpleLog/{self._current}"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            latest = data.get("tag_name", "")
+            # Normalise: strip leading 'v' for comparison
+            def _strip(v: str) -> str:
+                return v.lstrip("v")
+
+            if latest and _strip(latest) != _strip(self._current):
+                self.update_available.emit(latest, data.get("html_url", ""))
+            else:
+                self.up_to_date.emit(self._current)
+        except Exception as exc:
+            self.error.emit(str(exc))
