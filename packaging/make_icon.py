@@ -18,7 +18,7 @@ SVG_PATH = Path(__file__).parent / "linux" / "simplelog.svg"
 
 
 def render(output: Path, size: int = 256) -> None:
-    app = QApplication.instance() or QApplication(sys.argv[:1])
+    _app = QApplication.instance() or QApplication(sys.argv[:1])
 
     widget = QSvgWidget(str(SVG_PATH))
     widget.resize(QSize(size, size))
