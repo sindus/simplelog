@@ -28,6 +28,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPalette,
+    QShortcut,
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
@@ -1348,6 +1349,461 @@ class LogViewer(QWidget):
         sb.setValue(sb.maximum())
 
 
+# ── Sidebar helper: one term input row ────────────────────────────────────────
+
+class _TermRowWidget(QWidget):
+    """A single filter/search term row: [op toggle] [input] [×]."""
+
+    changed          = pyqtSignal()
+    remove_requested = pyqtSignal()
+
+    def __init__(self, operator: str = "", placeholder: str = "", parent=None):
+        super().__init__(parent)
+        self._operator = operator  # "" for the first row
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+
+        # Operator toggle button (AND ↔ OR), hidden for first row
+        self._op_btn = QPushButton(operator or "AND")
+        self._op_btn.setFixedSize(42, 24)
+        self._op_btn.setVisible(bool(operator))
+        self._op_btn.setStyleSheet(
+            f"QPushButton {{ background: {C_SEL_BG}; color: {C_ACCENT}; "
+            f"border-radius: 4px; font-size: 10px; font-weight: bold; border: none; }}"
+            f"QPushButton:hover {{ background: {C_DIVIDER}; }}"
+        )
+        self._op_btn.clicked.connect(self._toggle_operator)
+        row.addWidget(self._op_btn)
+
+        # Invisible spacer to align inputs when no op button
+        self._op_spacer = QWidget()
+        self._op_spacer.setFixedSize(42, 24)
+        self._op_spacer.setVisible(not bool(operator))
+        row.addWidget(self._op_spacer)
+
+        # Term text input
+        self._input = QLineEdit()
+        self._input.setPlaceholderText(placeholder)
+        self._input.setStyleSheet(
+            f"background: {C_CARD}; color: {C_TEXT}; border: 1px solid {C_DIVIDER}; "
+            "border-radius: 4px; padding: 2px 6px; font-size: 12px;"
+        )
+        self._input.textChanged.connect(self.changed)
+        row.addWidget(self._input, stretch=1)
+
+        # Remove button
+        self._rm_btn = QPushButton("×")
+        self._rm_btn.setFixedSize(24, 24)
+        self._rm_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C_MUTED}; "
+            "border: none; font-size: 16px; }}"
+            f"QPushButton:hover {{ color: {C_ERR}; }}"
+        )
+        self._rm_btn.clicked.connect(self.remove_requested)
+        row.addWidget(self._rm_btn)
+
+    def _toggle_operator(self) -> None:
+        self._operator = "OR" if self._operator == "AND" else "AND"
+        self._op_btn.setText(self._operator)
+        self.changed.emit()
+
+    def to_term_row(self) -> TermRow:
+        return TermRow(text=self._input.text(), operator=self._operator)
+
+    def set_placeholder(self, text: str) -> None:
+        self._input.setPlaceholderText(text)
+
+    def focus_input(self) -> None:
+        self._input.setFocus()
+
+    def set_text(self, text: str) -> None:
+        self._input.setText(text)
+
+
+# ── Right sidebar: filter + search + JSON keys ─────────────────────────────────
+
+class FilterSearchSidebar(QWidget):
+    """Global right sidebar. Call set_active_viewer() when the active tab changes."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(280)
+        self.setStyleSheet(
+            f"FilterSearchSidebar {{ background: {C_RAIL}; "
+            f"border-left: 1px solid {C_DIVIDER}; }}"
+        )
+
+        self._active_viewer: LogViewer | None = None
+        self._search_matches: list[tuple[int, int]] = []
+        self._search_match_index: int = -1
+        self._search_term_widgets: list[_TermRowWidget] = []
+        self._filter_term_widgets: list[_TermRowWidget] = []
+        self._section_labels: list[QLabel] = []
+
+        # Debounce timers
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(150)
+        self._filter_timer.timeout.connect(self._apply_filter_now)
+
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(150)
+        self._search_timer.timeout.connect(self._apply_search_now)
+
+        self._lines_timer = QTimer(self)
+        self._lines_timer.setSingleShot(True)
+        self._lines_timer.setInterval(300)
+        self._lines_timer.timeout.connect(self._apply_search_now)
+
+        self._build_ui()
+
+        _key = id(self)
+        i18n.register(_key, self.retranslate)
+        self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
+
+    # ── UI construction ───────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none; background: transparent;")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(0, 0, 0, 12)
+        layout.setSpacing(0)
+
+        # ── SEARCH ──
+        layout.addWidget(self._make_section_header("sidebar_search"))
+        self._search_rows_widget = QWidget()
+        self._search_rows_widget.setStyleSheet("background: transparent;")
+        self._search_rows_layout = QVBoxLayout(self._search_rows_widget)
+        self._search_rows_layout.setContentsMargins(12, 0, 12, 0)
+        self._search_rows_layout.setSpacing(4)
+        layout.addWidget(self._search_rows_widget)
+        self._add_search_row("")   # initial empty row
+
+        add_search = QHBoxLayout()
+        add_search.setContentsMargins(12, 4, 12, 0)
+        self._btn_add_search_and = QPushButton()
+        self._btn_add_search_and.clicked.connect(lambda: self._add_search_row("AND"))
+        self._btn_add_search_or  = QPushButton()
+        self._btn_add_search_or.clicked.connect(lambda: self._add_search_row("OR"))
+        for btn in (self._btn_add_search_and, self._btn_add_search_or):
+            btn.setFixedHeight(24)
+            btn.setStyleSheet(self._add_btn_style())
+        add_search.addWidget(self._btn_add_search_and)
+        add_search.addWidget(self._btn_add_search_or)
+        add_search.addStretch()
+        layout.addLayout(add_search)
+
+        nav = QHBoxLayout()
+        nav.setContentsMargins(12, 6, 12, 8)
+        self._btn_prev = QPushButton()
+        self._btn_next = QPushButton()
+        self._lbl_hits = QLabel()
+        self._lbl_hits.setStyleSheet(f"color: {C_MUTED}; font-size: 11px;")
+        for btn in (self._btn_prev, self._btn_next):
+            btn.setFixedHeight(28)
+            btn.setStyleSheet(self._nav_btn_style())
+        self._btn_prev.clicked.connect(self._search_prev)
+        self._btn_next.clicked.connect(self._search_next_match)
+        nav.addWidget(self._btn_prev)
+        nav.addWidget(self._btn_next)
+        nav.addWidget(self._lbl_hits)
+        nav.addStretch()
+        layout.addLayout(nav)
+
+        layout.addWidget(self._make_divider())
+
+        # ── FILTER ──
+        layout.addWidget(self._make_section_header("sidebar_filter"))
+        self._filter_rows_widget = QWidget()
+        self._filter_rows_widget.setStyleSheet("background: transparent;")
+        self._filter_rows_layout = QVBoxLayout(self._filter_rows_widget)
+        self._filter_rows_layout.setContentsMargins(12, 0, 12, 0)
+        self._filter_rows_layout.setSpacing(4)
+        layout.addWidget(self._filter_rows_widget)
+        self._add_filter_row("")   # initial empty row
+
+        add_filter = QHBoxLayout()
+        add_filter.setContentsMargins(12, 4, 12, 0)
+        self._btn_add_filter_and = QPushButton()
+        self._btn_add_filter_and.clicked.connect(lambda: self._add_filter_row("AND"))
+        self._btn_add_filter_or  = QPushButton()
+        self._btn_add_filter_or.clicked.connect(lambda: self._add_filter_row("OR"))
+        for btn in (self._btn_add_filter_and, self._btn_add_filter_or):
+            btn.setFixedHeight(24)
+            btn.setStyleSheet(self._add_btn_style())
+        add_filter.addWidget(self._btn_add_filter_and)
+        add_filter.addWidget(self._btn_add_filter_or)
+        add_filter.addStretch()
+        layout.addLayout(add_filter)
+
+        live_row = QHBoxLayout()
+        live_row.setContentsMargins(12, 6, 12, 8)
+        self._cb_live = QCheckBox()
+        self._cb_live.setChecked(True)
+        self._cb_live.setStyleSheet(f"color: {C_MUTED}; font-size: 11px;")
+        live_row.addWidget(self._cb_live)
+        live_row.addStretch()
+        layout.addLayout(live_row)
+
+        layout.addWidget(self._make_divider())
+
+        # ── JSON KEYS ──
+        layout.addWidget(self._make_section_header("sidebar_json_keys"))
+        self._json_container = QWidget()
+        self._json_container.setStyleSheet("background: transparent;")
+        self._json_layout = QVBoxLayout(self._json_container)
+        self._json_layout.setContentsMargins(12, 0, 12, 8)
+        self._json_layout.setSpacing(4)
+        self._lbl_json_ph = QLabel()
+        self._lbl_json_ph.setStyleSheet(f"color: {C_MUTED}; font-size: 11px;")
+        self._json_layout.addWidget(self._lbl_json_ph)
+        layout.addWidget(self._json_container)
+
+        layout.addStretch()
+
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+
+        # Ctrl+F: focus sidebar search (window-wide shortcut)
+        sc = QShortcut(QKeySequence("Ctrl+F"), self)
+        sc.setContext(Qt.ShortcutContext.WindowShortcut)
+        sc.activated.connect(self._focus_first_search)
+
+        self.retranslate()
+
+    def _make_section_header(self, key: str) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        h = QHBoxLayout(w)
+        h.setContentsMargins(12, 12, 12, 4)
+        lbl = QLabel()
+        lbl.setStyleSheet(
+            f"color: {C_MUTED}; font-size: 10px; font-weight: bold; "
+            "text-transform: uppercase; background: transparent;"
+        )
+        lbl.setProperty("i18n_key", key)
+        self._section_labels.append(lbl)
+        h.addWidget(lbl)
+        h.addStretch()
+        return w
+
+    def _make_divider(self) -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet(f"color: {C_DIVIDER};")
+        return line
+
+    def _add_btn_style(self) -> str:
+        return (
+            f"QPushButton {{ background: {C_SEL_BG}; color: {C_MUTED}; "
+            f"border-radius: 4px; font-size: 11px; padding: 0 8px; border: none; }}"
+            f"QPushButton:hover {{ color: {C_TEXT}; }}"
+        )
+
+    def _nav_btn_style(self) -> str:
+        return (
+            f"QPushButton {{ background: {C_SEL_BG}; color: {C_TEXT}; "
+            f"border-radius: 4px; font-size: 12px; padding: 0 10px; border: none; }}"
+            f"QPushButton:hover {{ background: {C_DIVIDER}; }}"
+        )
+
+    # ── Term row management ───────────────────────────────────────────────────
+
+    def _add_search_row(self, operator: str) -> None:
+        row = _TermRowWidget(operator, parent=self)
+        row.changed.connect(self._on_search_changed)
+        row.remove_requested.connect(lambda r=row: self._remove_search_row(r))
+        self._search_term_widgets.append(row)
+        self._search_rows_layout.addWidget(row)
+        row.set_placeholder(i18n.tr("sidebar_term_ph"))
+
+    def _remove_search_row(self, row: _TermRowWidget) -> None:
+        if len(self._search_term_widgets) == 1:
+            return  # always keep at least one row
+        self._search_term_widgets.remove(row)
+        self._search_rows_layout.removeWidget(row)
+        row.deleteLater()
+        self._on_search_changed()
+
+    def _add_filter_row(self, operator: str) -> None:
+        row = _TermRowWidget(operator, parent=self)
+        row.changed.connect(self._on_filter_changed)
+        row.remove_requested.connect(lambda r=row: self._remove_filter_row(r))
+        self._filter_term_widgets.append(row)
+        self._filter_rows_layout.addWidget(row)
+        row.set_placeholder(i18n.tr("sidebar_term_ph"))
+
+    def _remove_filter_row(self, row: _TermRowWidget) -> None:
+        if len(self._filter_term_widgets) == 1:
+            return
+        self._filter_term_widgets.remove(row)
+        self._filter_rows_layout.removeWidget(row)
+        row.deleteLater()
+        self._on_filter_changed()
+
+    # ── Signal handlers ───────────────────────────────────────────────────────
+
+    def _on_search_changed(self) -> None:
+        self._search_timer.start()
+
+    def _on_filter_changed(self) -> None:
+        if self._cb_live.isChecked():
+            self._filter_timer.start()
+
+    def _on_json_keys_updated(self, keys: set) -> None:
+        self._rebuild_json_chips(keys)
+
+    def _on_lines_appended(self) -> None:
+        self._lines_timer.start()   # debounced search re-scan
+
+    # ── Active viewer management ──────────────────────────────────────────────
+
+    def set_active_viewer(self, viewer: LogViewer | None) -> None:
+        if self._active_viewer is not None:
+            self._active_viewer.json_keys_updated.disconnect(self._on_json_keys_updated)
+            self._active_viewer.lines_appended.disconnect(self._on_lines_appended)
+            self._active_viewer.filter_applied.disconnect(self._refresh_search)
+        self._active_viewer = viewer
+        if viewer is not None:
+            viewer.json_keys_updated.connect(self._on_json_keys_updated)
+            viewer.lines_appended.connect(self._on_lines_appended)
+            viewer.filter_applied.connect(self._refresh_search)
+            self._on_json_keys_updated(viewer.get_json_keys())
+            viewer.apply_filter(self._current_filter_terms())
+            # _refresh_search is triggered by filter_applied signal
+
+    def _current_filter_terms(self) -> list[TermRow]:
+        return [w.to_term_row() for w in self._filter_term_widgets]
+
+    def _current_search_terms(self) -> list[TermRow]:
+        return [w.to_term_row() for w in self._search_term_widgets]
+
+    # ── Apply filter / search ─────────────────────────────────────────────────
+
+    def _apply_filter_now(self) -> None:
+        if self._active_viewer:
+            self._active_viewer.apply_filter(self._current_filter_terms())
+
+    def _apply_search_now(self) -> None:
+        self._refresh_search()
+
+    def _refresh_search(self) -> None:
+        if self._active_viewer is None:
+            self._search_matches = []
+            self._search_match_index = -1
+            self._update_hits_label()
+            return
+        terms = self._current_search_terms()
+        self._search_matches = self._active_viewer.apply_search(terms)
+        self._search_match_index = 0 if self._search_matches else -1
+        self._update_hits_label()
+        if self._search_matches:
+            self._scroll_to_match(0)
+
+    def _search_prev(self) -> None:
+        if not self._search_matches:
+            return
+        self._search_match_index = (self._search_match_index - 1) % len(self._search_matches)
+        self._scroll_to_match(self._search_match_index)
+        self._update_hits_label()
+
+    def _search_next_match(self) -> None:
+        if not self._search_matches:
+            return
+        self._search_match_index = (self._search_match_index + 1) % len(self._search_matches)
+        self._scroll_to_match(self._search_match_index)
+        self._update_hits_label()
+
+    def _scroll_to_match(self, index: int) -> None:
+        if self._active_viewer is None or not self._search_matches:
+            return
+        pos, length = self._search_matches[index]
+        cursor = self._active_viewer.text_edit.textCursor()
+        cursor.setPosition(pos)
+        cursor.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
+        self._active_viewer.text_edit.setTextCursor(cursor)
+
+    def _update_hits_label(self) -> None:
+        n = len(self._search_matches)
+        if n == 0:
+            self._lbl_hits.setText(i18n.tr("sidebar_no_hits"))
+        else:
+            self._lbl_hits.setText(i18n.tr("sidebar_hits", n=n))
+
+    # ── JSON chips ────────────────────────────────────────────────────────────
+
+    def _rebuild_json_chips(self, keys: set) -> None:
+        # Clear existing chips, but do NOT delete the placeholder label widget
+        while self._json_layout.count():
+            item = self._json_layout.takeAt(0)
+            w = item.widget()
+            if w and w is not self._lbl_json_ph:
+                w.deleteLater()
+
+        sorted_keys = sorted(keys)[:50]  # cap at 50
+        if not sorted_keys:
+            self._json_layout.addWidget(self._lbl_json_ph)
+            return
+
+        for key in sorted_keys:
+            btn = QPushButton(key)
+            btn.setFixedHeight(24)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {C_SEL_BG}; color: {C_TRACE}; "
+                f"border-radius: 4px; font-size: 11px; padding: 0 8px; border: none; "
+                f"text-align: left; }}"
+                f"QPushButton:hover {{ background: {C_DIVIDER}; }}"
+            )
+            btn.clicked.connect(lambda checked=False, k=key: self._add_filter_from_key(k))
+            self._json_layout.addWidget(btn)
+
+    def _add_filter_from_key(self, key: str) -> None:
+        # If the last filter row is empty, fill it; otherwise append a new AND row
+        last = self._filter_term_widgets[-1] if self._filter_term_widgets else None
+        if last and last.to_term_row().text == "":
+            last.set_text(key)
+        else:
+            self._add_filter_row("AND")
+            self._filter_term_widgets[-1].set_text(key)
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _focus_first_search(self) -> None:
+        if self._search_term_widgets:
+            self._search_term_widgets[0].focus_input()
+        self.show()
+
+    def retranslate(self) -> None:
+        for lbl in self._section_labels:
+            key = lbl.property("i18n_key")
+            if key:
+                lbl.setText(i18n.tr(key))
+        self._btn_add_search_and.setText(i18n.tr("sidebar_add_and"))
+        self._btn_add_search_or.setText(i18n.tr("sidebar_add_or"))
+        self._btn_prev.setText(i18n.tr("sidebar_prev"))
+        self._btn_next.setText(i18n.tr("sidebar_next"))
+        self._btn_add_filter_and.setText(i18n.tr("sidebar_add_and"))
+        self._btn_add_filter_or.setText(i18n.tr("sidebar_add_or"))
+        self._cb_live.setText(i18n.tr("sidebar_live_filter"))
+        self._lbl_json_ph.setText(i18n.tr("sidebar_json_ph"))
+        for w in self._search_term_widgets + self._filter_term_widgets:
+            w.set_placeholder(i18n.tr("sidebar_term_ph"))
+        self._update_hits_label()
+
+
 # ── MainWindow ────────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -1404,6 +1860,12 @@ class MainWindow(QMainWindow):
         self._panes.append(first_pane)
         self._active_pane = first_pane
         root.addWidget(self._splitter, stretch=1)
+
+        self._sidebar = FilterSearchSidebar(self)
+        root.addWidget(self._sidebar)
+
+        sc_toggle = QShortcut(QKeySequence("Ctrl+Shift+F"), self)
+        sc_toggle.activated.connect(lambda: self._sidebar.setVisible(not self._sidebar.isVisible()))
 
         # Status bar
         self._status = QStatusBar()
@@ -1604,8 +2066,15 @@ class MainWindow(QMainWindow):
         tabs.currentChanged.connect(lambda _, t=tabs: self._set_active_pane(t))
         return tabs
 
-    def _set_active_pane(self, pane: QTabWidget):
+    def _on_active_viewer_changed(self, pane: QTabWidget) -> None:
+        """Called whenever focus moves to a different pane or tab."""
         self._active_pane = pane
+        widget = pane.currentWidget()
+        viewer = widget if isinstance(widget, LogViewer) else None
+        self._sidebar.set_active_viewer(viewer)
+
+    def _set_active_pane(self, pane: QTabWidget):
+        self._on_active_viewer_changed(pane)
 
     _MAX_PANES = 9
 
@@ -1710,12 +2179,27 @@ class MainWindow(QMainWindow):
         idx = target.addTab(viewer, title)
         target.setCurrentIndex(idx)
         self._active_pane = target
+        widget = target.currentWidget()
+        if isinstance(widget, LogViewer):
+            self._sidebar.set_active_viewer(widget)
         worker.start()
 
     def _close_tab(self, index: int, tabs: QTabWidget):
         viewer = tabs.widget(index)
+
+        # Unconditionally disconnect sidebar from this viewer before removing it.
+        # set_active_viewer guards against double-disconnect via its None check.
+        self._sidebar.set_active_viewer(None)
+
         self._stop_viewer(viewer)
         tabs.removeTab(index)
+
+        # Re-point sidebar to new active tab if one remains
+        if tabs is self._active_pane and tabs.count() > 0:
+            new_widget = tabs.currentWidget()
+            if isinstance(new_widget, LogViewer):
+                self._sidebar.set_active_viewer(new_widget)
+
         # Remove empty secondary panes (keep at least one pane)
         if tabs.count() == 0 and tabs in self._panes and len(self._panes) > 1:
             self._panes.remove(tabs)
