@@ -34,7 +34,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "action_update":         "Check for Updates",
         "action_quit":           "Quit",
         "action_copy":           "Copy",
-        "action_paste":          "Paste",
         "action_break":          "Break",
         "lang_english":          "English",
         "lang_french":           "Français",
@@ -55,9 +54,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  --tail N          Lines to load from the end of each file (default: 100).\n"
             "\n"
             "KEYBOARD SHORTCUTS\n"
-            "  Ctrl+F            Open / focus search bar\n"
-            "  Enter             Find next match\n"
-            "  Escape            Close search bar\n"
+            "  Ctrl+F            Focus sidebar search\n"
+            "  Ctrl+Shift+F      Toggle sidebar\n"
             "\n"
             "EXAMPLES\n"
             "  simplelog\n"
@@ -115,8 +113,20 @@ _STRINGS: dict[str, dict[str, str]] = {
         "viewer_timestamps":     "Timestamps",
         "viewer_clear":          "Clear",
         "viewer_stop":           "Stop",
-        "viewer_search_ph":      "Search…  Ctrl+F",
         "viewer_lines":          "{n:,} lines",
+        # ── Sidebar ───────────────────────────────────────────────────────
+        "sidebar_search":        "Search",
+        "sidebar_filter":        "Filter",
+        "sidebar_json_keys":     "JSON Keys",
+        "sidebar_add_and":       "+ AND",
+        "sidebar_add_or":        "+ OR",
+        "sidebar_prev":          "▲ Prev",
+        "sidebar_next":          "▼ Next",
+        "sidebar_hits":          "{n:,} hits",
+        "sidebar_no_hits":       "No results",
+        "sidebar_term_ph":       "Term…",
+        "sidebar_live_filter":   "Live",
+        "sidebar_json_ph":       "Detected keys…",
         # ── Error / dialog messages ───────────────────────────────────
         "err_file_not_found":    "File not found",
         "err_cannot_open":       "Cannot open: {path}",
@@ -135,7 +145,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "action_update":         "Mettre à jour",
         "action_quit":           "Quitter",
         "action_copy":           "Copier",
-        "action_paste":          "Coller",
         "action_break":          "Break",
         "lang_english":          "English",
         "lang_french":           "Français",
@@ -156,9 +165,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  --tail N          Lignes à charger depuis la fin du fichier (défaut : 100).\n"
             "\n"
             "RACCOURCIS CLAVIER\n"
-            "  Ctrl+F            Ouvrir / activer la barre de recherche\n"
-            "  Entrée            Résultat suivant\n"
-            "  Échap              Fermer la barre de recherche\n"
+            "  Ctrl+F            Activer la recherche dans la sidebar\n"
+            "  Ctrl+Shift+F      Afficher / masquer la sidebar\n"
             "\n"
             "EXEMPLES\n"
             "  simplelog\n"
@@ -216,8 +224,20 @@ _STRINGS: dict[str, dict[str, str]] = {
         "viewer_timestamps":     "Timestamps",
         "viewer_clear":          "Effacer",
         "viewer_stop":           "Arrêter",
-        "viewer_search_ph":      "Rechercher…  Ctrl+F",
         "viewer_lines":          "{n:,} lignes",
+        # ── Sidebar ───────────────────────────────────────────────────────
+        "sidebar_search":        "Recherche",
+        "sidebar_filter":        "Filtrer",
+        "sidebar_json_keys":     "Clés JSON",
+        "sidebar_add_and":       "+ ET",
+        "sidebar_add_or":        "+ OU",
+        "sidebar_prev":          "▲ Préc",
+        "sidebar_next":          "▼ Suiv",
+        "sidebar_hits":          "{n:,} résultats",
+        "sidebar_no_hits":       "Aucun résultat",
+        "sidebar_term_ph":       "Terme…",
+        "sidebar_live_filter":   "En direct",
+        "sidebar_json_ph":       "Clés détectées…",
         # ── Error / dialog messages ───────────────────────────────────
         "err_file_not_found":    "Fichier introuvable",
         "err_cannot_open":       "Impossible d'ouvrir : {path}",
