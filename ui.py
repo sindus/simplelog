@@ -4,14 +4,18 @@ ui.py — SimpleLog Material Design dark UI (PyQt6)
 
 from __future__ import annotations
 
+import json
 import os
 import re
+from collections import deque  # noqa: F401
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from PyQt6.QtCore import (
     QRectF,
     QSize,
     Qt,
+    QTimer,  # noqa: F401
     QUrl,
     pyqtSignal,
 )
@@ -980,6 +984,38 @@ class SideStack(QStackedWidget):
         )
 
 
+# ── Filter / search data model ─────────────────────────────────────────────────
+
+@dataclass
+class TermRow:
+    text: str
+    operator: str  # "AND" | "OR" | "" — empty string for the first term (ignored)
+
+
+def _line_matches(line: str, terms: list[TermRow]) -> bool:
+    """Return True if *line* satisfies the AND/OR chain of *terms* (case-insensitive)."""
+    if not terms:
+        return True
+    low = line.lower()
+    result = terms[0].text.lower() in low
+    for term in terms[1:]:
+        hit = term.text.lower() in low
+        result = (result and hit) if term.operator == "AND" else (result or hit)
+    return result
+
+
+def _extract_json_keys(line: str) -> set[str]:
+    """Extract top-level JSON keys from *line*. Best-effort; never raises."""
+    try:
+        obj = json.loads(line)
+        if isinstance(obj, dict):
+            return set(obj.keys())
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Fallback: regex for "key": patterns (handles JSON embedded in a longer line)
+    return set(re.findall(r'"([\w_-]+)"\s*:', line))
+
+
 # ── LogHighlighter ─────────────────────────────────────────────────────────────
 
 class LogHighlighter(QSyntaxHighlighter):
@@ -1471,6 +1507,8 @@ class MainWindow(QMainWindow):
         tabs.setTabsClosable(True)
         tabs.setDocumentMode(True)
         tabs.setStyleSheet(f"background: {C_BG};")
+        tabs.setMinimumWidth(50)
+        tabs.setMinimumHeight(50)
         tabs.tabCloseRequested.connect(lambda idx, t=tabs: self._close_tab(idx, t))
         # Clicking any tab in a pane makes it the active pane
         tabs.currentChanged.connect(lambda _, t=tabs: self._set_active_pane(t))
@@ -1481,22 +1519,52 @@ class MainWindow(QMainWindow):
 
     _MAX_PANES = 9
 
+    def _make_sub_splitter(self, orientation: Qt.Orientation) -> QSplitter:
+        s = QSplitter(orientation)
+        s.setChildrenCollapsible(False)
+        s.setStyleSheet(self._splitter.styleSheet())
+        return s
+
     def _get_or_create_secondary_pane(self, orientation: Qt.Orientation) -> QTabWidget:
         if len(self._panes) >= self._MAX_PANES:
             return self._panes[-1]
-        # Set orientation only on the first split
-        if len(self._panes) == 1:
-            self._splitter.setOrientation(orientation)
-        pane = self._make_pane()
-        self._splitter.addWidget(pane)
-        self._panes.append(pane)
-        # Redistribute sizes equally across all panes
-        n = len(self._panes)
-        total = (self._splitter.width() if self._splitter.orientation() == Qt.Orientation.Horizontal
-                 else self._splitter.height())
-        share = max(total // n, 150)
-        self._splitter.setSizes([share] * n)
-        return pane
+
+        new_pane = self._make_pane()
+        self._panes.append(new_pane)
+        active = self._active_pane
+
+        # Find the direct parent splitter of the active pane
+        parent_spl = active.parent()
+
+        if isinstance(parent_spl, QSplitter) and parent_spl.orientation() == orientation:
+            # Same orientation: insert the new pane right after the active one
+            idx = parent_spl.indexOf(active)
+            parent_spl.insertWidget(idx + 1, new_pane)
+            n = parent_spl.count()
+            dim = (parent_spl.width() if orientation == Qt.Orientation.Horizontal
+                   else parent_spl.height())
+            parent_spl.setSizes([max(dim // n, 50)] * n)
+        else:
+            # Different (or missing) orientation: wrap active pane in a new sub-splitter
+            if not isinstance(parent_spl, QSplitter):
+                # Fallback — should not happen in normal use
+                self._splitter.addWidget(new_pane)
+                return new_pane
+
+            idx = parent_spl.indexOf(active)
+            parent_sizes = parent_spl.sizes()
+
+            sub = self._make_sub_splitter(orientation)
+            # Detach active from its current parent and move it into the sub-splitter
+            active.setParent(None)   # removes from parent_spl; idx slot is now vacant
+            sub.addWidget(active)
+            sub.addWidget(new_pane)
+            sub.setSizes([1, 1])     # equal initial split
+
+            parent_spl.insertWidget(idx, sub)
+            parent_spl.setSizes(parent_sizes)  # restore parent distribution
+
+        return new_pane
 
     # ── Nav ───────────────────────────────────────────────────────────────────
 
