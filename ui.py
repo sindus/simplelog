@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections import deque  # noqa: F401
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -1255,6 +1255,9 @@ class LogViewer(QWidget):
     def apply_filter(self, terms: list[TermRow]) -> None:
         """Re-render the display from _raw_events through *terms*."""
         self._current_filter_terms = terms
+        if self._filtering:
+            # Re-entrant call during processEvents() — latest terms recorded above; outer call will use them
+            return
         self._filtering = True
         self._pending_during_filter.clear()
 
@@ -1317,12 +1320,14 @@ class LogViewer(QWidget):
             pattern = re.compile(re.escape(term.text), re.IGNORECASE)
             for m in pattern.finditer(text):
                 matches.append((m.start(), m.end() - m.start()))
-        matches.sort(key=lambda x: x[0])
-        return matches
+        return sorted(set(matches), key=lambda x: x[0])
 
     def clear(self):
         self.text_edit.clear()
         self._line_count = 0
+        self._raw_events.clear()
+        self._json_keys = set()
+        self._current_filter_terms = []
         self.line_badge.setText(i18n.tr("viewer_lines", n=0))
 
     def _insert_separator(self):
