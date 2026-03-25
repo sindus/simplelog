@@ -1127,10 +1127,6 @@ class LogViewer(QWidget):
             "padding: 2px 10px; font-size: 11px; border: none;"
         )
 
-        self.search_input = QLineEdit()
-        self.search_input.setMaximumWidth(220)
-        self.search_input.returnPressed.connect(self._search_next)
-
         self.autoscroll_cb = QCheckBox()
         self.autoscroll_cb.setChecked(True)
 
@@ -1151,7 +1147,6 @@ class LogViewer(QWidget):
         tb.addWidget(self.title_label)
         tb.addStretch()
         tb.addWidget(self.line_badge)
-        tb.addWidget(self.search_input)
         tb.addWidget(self.autoscroll_cb)
         tb.addWidget(self.timestamps_cb)
         tb.addWidget(self.clear_btn)
@@ -1171,10 +1166,6 @@ class LogViewer(QWidget):
         self._highlighter = LogHighlighter(self.text_edit.document())
         layout.addWidget(self.text_edit)
 
-        # Ctrl+F shortcut
-        sc = QShortcut(QKeySequence("Ctrl+F"), self)
-        sc.activated.connect(lambda: self.search_input.setFocus())
-
         self.retranslate()
 
     def retranslate(self) -> None:
@@ -1184,7 +1175,6 @@ class LogViewer(QWidget):
         self.timestamps_cb.setText(i18n.tr("viewer_timestamps"))
         self.clear_btn.setText(i18n.tr("viewer_clear"))
         self.stop_btn.setText(i18n.tr("viewer_stop"))
-        self.search_input.setPlaceholderText(i18n.tr("viewer_search_ph"))
         self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -1250,18 +1240,6 @@ class LogViewer(QWidget):
         self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
         sb = self.text_edit.verticalScrollBar()
         sb.setValue(sb.maximum())
-
-    # ── Internal helpers ──────────────────────────────────────────────────────
-
-    def _search_next(self):
-        text = self.search_input.text()
-        if not text:
-            return
-        if not self.text_edit.find(text):
-            c = self.text_edit.textCursor()
-            c.movePosition(QTextCursor.MoveOperation.Start)
-            self.text_edit.setTextCursor(c)
-            self.text_edit.find(text)
 
 
 # ── MainWindow ────────────────────────────────────────────────────────────────
@@ -1356,11 +1334,6 @@ class MainWindow(QMainWindow):
         self._act_copy.triggered.connect(self._action_copy)
         self._menu_edit.addAction(self._act_copy)
 
-        self._act_paste = QAction(self)
-        self._act_paste.setShortcut(QKeySequence("Ctrl+V"))
-        self._act_paste.triggered.connect(self._action_paste)
-        self._menu_edit.addAction(self._act_paste)
-
         self._menu_edit.addSeparator()
 
         self._act_break = QAction(self)
@@ -1399,7 +1372,6 @@ class MainWindow(QMainWindow):
         self._act_quit.setText(i18n.tr("action_quit"))
         self._menu_edit.setTitle(i18n.tr("menu_edit"))
         self._act_copy.setText(i18n.tr("action_copy"))
-        self._act_paste.setText(i18n.tr("action_paste"))
         self._act_break.setText(i18n.tr("action_break"))
         self._menu_lang.setTitle(i18n.tr("menu_language"))
         self._act_lang_en.setText(i18n.tr("lang_english"))
@@ -1464,13 +1436,6 @@ class MainWindow(QMainWindow):
         viewer = self._active_viewer()
         if viewer:
             viewer.text_edit.copy()
-
-    def _action_paste(self) -> None:
-        """Edit → Paste: paste clipboard text into active viewer's search bar."""
-        viewer = self._active_viewer()
-        if viewer:
-            viewer.search_input.setFocus()
-            viewer.search_input.paste()
 
     def _action_break(self) -> None:
         """Edit → Break: insert a visual separator in the active viewer."""
