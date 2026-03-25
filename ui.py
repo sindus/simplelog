@@ -28,7 +28,6 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPalette,
-    QShortcut,
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
@@ -1081,6 +1080,9 @@ class _LogTextEdit(QTextEdit):
 
 class LogViewer(QWidget):
     stop_requested = pyqtSignal()
+    json_keys_updated = pyqtSignal(set)
+    lines_appended    = pyqtSignal()
+    filter_applied    = pyqtSignal()
 
     _MAX_LINES = 10_000
 
@@ -1089,6 +1091,11 @@ class LogViewer(QWidget):
         self._source_type = source_type
         self._line_count  = 0
         self._build_ui()
+        self._raw_events: deque[tuple[int, str]] = deque(maxlen=self._MAX_LINES)
+        self._json_keys: set[str] = set()
+        self._filtering: bool = False
+        self._pending_during_filter: list[tuple[int, str]] = []
+        self._current_filter_terms: list[TermRow] = []
         _key = id(self)
         i18n.register(_key, self.retranslate)
         self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
@@ -1183,11 +1190,33 @@ class LogViewer(QWidget):
         self.title_label.setText(text)
 
     def append_events(self, events: list[tuple[int, str]]):
+        # 1. Buffer all raw events (deque caps at _MAX_LINES automatically)
+        for ev in events:
+            self._raw_events.append(ev)
+
+        # 2. Detect JSON keys (always, regardless of filter state)
+        new_keys: set[str] = set()
+        for _, message in events:
+            new_keys |= _extract_json_keys(message)
+        if new_keys - self._json_keys:
+            self._json_keys |= new_keys
+            self.json_keys_updated.emit(self._json_keys.copy())
+
+        # 3. If apply_filter is running, buffer events for later display
+        if self._filtering:
+            self._pending_during_filter.extend(events)
+            return
+
+        # 4. Write matching events to the QTextEdit display
         cursor = self.text_edit.textCursor()
         show_ts = self.timestamps_cb.isChecked()
+        wrote_any = False
 
         for ts_ms, message in events:
-            # Trim oldest line if over limit
+            if not _line_matches(message, self._current_filter_terms):
+                continue
+
+            # Trim oldest display line if at the display limit
             if self._line_count >= self._MAX_LINES:
                 c2 = self.text_edit.textCursor()
                 c2.movePosition(QTextCursor.MoveOperation.Start)
@@ -1213,11 +1242,83 @@ class LogViewer(QWidget):
                 cursor.insertText("\n", default_fmt)
             cursor.insertText(line, default_fmt)
             self._line_count += 1
+            wrote_any = True
 
         self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
         if self.autoscroll_cb.isChecked():
             sb = self.text_edit.verticalScrollBar()
             sb.setValue(sb.maximum())
+
+        if wrote_any:
+            self.lines_appended.emit()
+
+    def apply_filter(self, terms: list[TermRow]) -> None:
+        """Re-render the display from _raw_events through *terms*."""
+        self._current_filter_terms = terms
+        self._filtering = True
+        self._pending_during_filter.clear()
+
+        self.text_edit.clear()
+        self._line_count = 0
+
+        cursor = self.text_edit.textCursor()
+        show_ts = self.timestamps_cb.isChecked()
+
+        for ts_ms, message in self._raw_events:
+            if not _line_matches(message, terms):
+                continue
+
+            if show_ts and ts_ms:
+                ts_str = datetime.fromtimestamp(
+                    ts_ms / 1000, tz=UTC
+                ).strftime("%H:%M:%S")
+                line = f"[{ts_str}]  {message}"
+            else:
+                line = message
+
+            default_fmt = QTextCharFormat()
+            default_fmt.setForeground(QColor("#d4d4d4"))
+            if self._line_count > 0:
+                cursor.insertText("\n", default_fmt)
+            cursor.insertText(line, default_fmt)
+            self._line_count += 1
+
+            # UI-freeze mitigation: yield to the event loop every 500 lines
+            if self._line_count % 500 == 0:
+                QApplication.processEvents()
+
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
+        self._filtering = False
+
+        # Flush events that arrived during filtering
+        if self._pending_during_filter:
+            pending = self._pending_during_filter[:]
+            self._pending_during_filter.clear()
+            self.append_events(pending)
+
+        if self.autoscroll_cb.isChecked():
+            sb = self.text_edit.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+        self.filter_applied.emit()
+
+    def get_json_keys(self) -> set[str]:
+        return self._json_keys.copy()
+
+    def apply_search(self, terms: list[TermRow]) -> list[tuple[int, int]]:
+        """Highlight search terms and return sorted (position, length) match list."""
+        self._highlighter.set_search_terms(terms)
+        matches: list[tuple[int, int]] = []
+        active = [t for t in terms if t.text.strip()]
+        if not active:
+            return matches
+        text = self.text_edit.toPlainText()
+        for term in active:
+            pattern = re.compile(re.escape(term.text), re.IGNORECASE)
+            for m in pattern.finditer(text):
+                matches.append((m.start(), m.end() - m.start()))
+        matches.sort(key=lambda x: x[0])
+        return matches
 
     def clear(self):
         self.text_edit.clear()
