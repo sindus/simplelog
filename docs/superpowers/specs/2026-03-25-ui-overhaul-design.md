@@ -209,11 +209,23 @@ Internal: `_items: list[LogItem]` (all items), `_visible: list[int]` (indices of
 - If expanded: draw table rows below header row
 
 **Search highlights in delegate**
-The model holds `_search_highlights: dict[int, list[tuple[int, int]]]` (item_index → list of (char_start, char_len)). The delegate checks this dict and draws a semi-transparent yellow rect behind matching characters.
+`LogViewer` owns `_search_highlights: dict[int, list[tuple[int, int]]]` (visible item index → list of (char_start, char_len)). The delegate receives this dict via a `set_search_highlights()` method and draws a semi-transparent `#ffd54f44` rect behind matching character spans. Storing highlights on `LogViewer` (not the model) keeps the model free of display concerns.
 
 ### `apply_search` update
 
-Returns `list[tuple[int, int, int]]` — `(item_visible_index, char_start, char_len)`. The sidebar stores these and uses `listview.scrollTo(model.index(item_visible_index))` for navigation.
+`LogViewer.apply_search(terms)` now returns `list[tuple[int, int, int]]` — `(visible_item_index, char_start, char_len)`.
+
+`FilterSearchSidebar` stores these as `_search_matches`. Navigation methods change:
+
+```python
+def _scroll_to_match(self, index: int) -> None:
+    if self._active_viewer is None or not self._search_matches:
+        return
+    visible_idx, char_start, char_len = self._search_matches[index]
+    self._active_viewer.scroll_to_search_match(visible_idx, char_start, char_len)
+```
+
+`LogViewer.scroll_to_search_match(visible_idx, char_start, char_len)` calls `self._list_view.scrollTo(self._model.index(visible_idx))` and updates `_search_highlights` + triggers a repaint. The cursor-based `setTextCursor` path is removed entirely.
 
 ### Autoscroll
 
@@ -225,6 +237,25 @@ def _on_rows_appended(self):
     if self.autoscroll_cb.isChecked():
         self._list_view.scrollToBottom()
 ```
+
+### `timestamps_cb` — timestamp display
+
+`timestamps_cb` (the "show timestamps" checkbox in the viewer toolbar) is **kept**. It becomes a flag on `LogViewer` that the delegate reads.
+
+- `LogViewer` exposes `show_timestamps: bool` property (backed by `timestamps_cb.isChecked()`)
+- `LogDelegate` receives a reference to the viewer and checks `viewer.show_timestamps` in `paint()`
+- When `show_timestamps` is False, the `[HH:MM:SS]` prefix is omitted from all rendered rows
+- The `timestamps_cb.stateChanged` signal connects to `self._list_view.viewport().update()` to repaint
+
+### `_insert_separator` — Enter-key separator
+
+The Enter-key separator feature (`_LogTextEdit.enter_pressed` → `_insert_separator`) is **dropped**. A `QListView` has no document to insert separator text into. This is listed in Out of scope below.
+
+### Re-entrancy guard (`_filtering` / `_pending_during_filter`)
+
+The `_filtering` flag and `_pending_during_filter` buffer are **removed**. They existed because the old `apply_filter` called `QApplication.processEvents()` inside a loop to avoid UI freezes, which could cause re-entrant `append_events` calls.
+
+The new `LogModel.apply_filter` does not call `processEvents()`. It sets `visible` flags and calls `beginResetModel/endResetModel`. For 10k items this is a ~5–15ms operation (flag-setting loop, no rendering) — below perceptible threshold. `append_events` arriving during `apply_filter` will be serialised naturally on the Qt main thread with no re-entrancy risk.
 
 ### Font / style
 
@@ -261,3 +292,4 @@ def _on_rows_appended(self):
 - Nested JSON (objects within objects) — flattened to `str(value)` in the table
 - Copy-to-clipboard of a single JSON field — future feature
 - Performance profiling beyond 10k lines — existing cap unchanged
+- Enter-key separator (the `─── HH:MM:SS ───` visual break) — removed, not portable to QListView
