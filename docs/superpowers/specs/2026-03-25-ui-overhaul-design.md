@@ -251,11 +251,27 @@ def _on_rows_appended(self):
 
 The Enter-key separator feature (`_LogTextEdit.enter_pressed` → `_insert_separator`) is **dropped**. A `QListView` has no document to insert separator text into. This is listed in Out of scope below.
 
+This requires removing two things in `MainWindow`:
+- `_action_break()` method (calls `viewer._insert_separator()`)
+- The `Edit → Break` menu item and its `Ctrl+Return` shortcut (`_act_break`)
+
 ### Re-entrancy guard (`_filtering` / `_pending_during_filter`)
 
 The `_filtering` flag and `_pending_during_filter` buffer are **removed**. They existed because the old `apply_filter` called `QApplication.processEvents()` inside a loop to avoid UI freezes, which could cause re-entrant `append_events` calls.
 
 The new `LogModel.apply_filter` does not call `processEvents()`. It sets `visible` flags and calls `beginResetModel/endResetModel`. For 10k items this is a ~5–15ms operation (flag-setting loop, no rendering) — below perceptible threshold. `append_events` arriving during `apply_filter` will be serialised naturally on the Qt main thread with no re-entrancy risk.
+
+### `_visible` list consistency
+
+`LogModel` maintains `_visible: list[int]` (indices into `_items` for currently-visible rows). Two operations must keep it consistent:
+- **`apply_filter`**: rebuild `_visible` from scratch before `endResetModel`
+- **`append_events`**: for each new item, append its index to `_visible` only if it passes `_current_filter_terms`
+
+`rowCount()` returns `len(_visible)`. `data(index, role)` maps `index.row()` → `_visible[row]` → `_items[idx]`.
+
+### `message` field in `LogItem` — no timestamp prefix
+
+`LogItem.message` stores the raw message string as emitted by the worker — it never contains a timestamp prefix. Timestamps are stored separately in `LogItem.ts_ms`. Therefore `_try_parse_json(message)` can call `json.loads(message)` directly with no stripping needed.
 
 ### Font / style
 
