@@ -1030,6 +1030,10 @@ class LogHighlighter(QSyntaxHighlighter):
         (re.compile(r'"[\w_-]+"(?=\s*:)'),     C_TRACE, False),
     ]
 
+    def __init__(self, document):
+        super().__init__(document)
+        self._search_rules: list[re.Pattern[str]] = []
+
     def highlightBlock(self, text: str) -> None:  # noqa: N802
         for pattern, color, bold in self.RULES:
             fmt = QTextCharFormat()
@@ -1038,6 +1042,21 @@ class LogHighlighter(QSyntaxHighlighter):
                 fmt.setFontWeight(700)
             for m in pattern.finditer(text):
                 self.setFormat(m.start(), m.end() - m.start(), fmt)
+        # Search highlights: background only, so severity colours are preserved
+        if self._search_rules:
+            search_fmt = QTextCharFormat()
+            search_fmt.setBackground(QColor("#3a3a00"))
+            for pattern in self._search_rules:
+                for m in pattern.finditer(text):
+                    self.setFormat(m.start(), m.end() - m.start(), search_fmt)
+
+    def set_search_terms(self, terms: list[TermRow]) -> None:
+        self._search_rules = [
+            re.compile(re.escape(t.text), re.IGNORECASE)
+            for t in terms
+            if t.text.strip()
+        ]
+        self.rehighlight()
 
 
 # ── LogViewer ─────────────────────────────────────────────────────────────────
