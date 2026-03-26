@@ -1841,7 +1841,7 @@ class FilterSearchSidebar(QWidget):
         )
 
         self._active_viewer: LogViewer | None = None
-        self._search_matches: list[tuple[int, int]] = []
+        self._search_matches: list[tuple[int, int, int]] = []
         self._search_match_index: int = -1
         self._search_term_widgets: list[_TermRowWidget] = []
         self._filter_term_widgets: list[_TermRowWidget] = []
