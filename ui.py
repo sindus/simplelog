@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from PyQt6.QtCore import (
+    QAbstractListModel,
+    QModelIndex,
     QRectF,
     QSize,
     Qt,
@@ -1090,6 +1092,134 @@ def _resolve_main_key(data: dict) -> str | None:
         if k in data:
             return k
     return None
+
+
+# ── LogItem + LogModel ─────────────────────────────────────────────────────────
+
+@dataclass
+class LogItem:
+    ts_ms: int
+    message: str
+    is_json: bool
+    json_data: dict | None
+    main_key: str | None
+    expanded: bool = False
+    visible: bool = True
+
+
+_ITEM_ROLE     = Qt.ItemDataRole.UserRole + 1
+_EXPANDED_ROLE = Qt.ItemDataRole.UserRole + 2
+
+
+class LogModel(QAbstractListModel):
+    rows_appended     = pyqtSignal()
+    json_keys_updated = pyqtSignal(set)
+    filter_applied    = pyqtSignal()
+
+    _MAX_LINES = 10_000
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._items: list[LogItem] = []
+        self._visible: list[LogItem] = []   # references into _items
+        self._json_keys: set[str] = set()
+        self._current_filter_terms: list[TermRow] = []
+
+    # ── QAbstractListModel interface ──────────────────────────────────────────
+
+    def rowCount(self, parent=QModelIndex()) -> int:  # noqa: B008
+        return 0 if parent.isValid() else len(self._visible)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid() or index.row() >= len(self._visible):
+            return None
+        item = self._visible[index.row()]
+        if role == _ITEM_ROLE:
+            return item
+        if role == Qt.ItemDataRole.DisplayRole:
+            return item.message
+        return None
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole) -> bool:
+        if role == _EXPANDED_ROLE and index.isValid():
+            item = self._visible[index.row()]
+            item.expanded = bool(value)
+            self.dataChanged.emit(index, index, [role])
+            return True
+        return False
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def append_events(self, events: list[tuple[int, str]]) -> None:
+        if not events:
+            return
+        new_keys: set[str] = set()
+        appended: list[LogItem] = []
+
+        for ts_ms, message in events:
+            json_data = _try_parse_json(message)
+            main_key  = _resolve_main_key(json_data) if json_data else None
+            item = LogItem(
+                ts_ms=ts_ms,
+                message=message,
+                is_json=json_data is not None,
+                json_data=json_data,
+                main_key=main_key,
+                visible=_line_matches(message, self._current_filter_terms),
+            )
+            self._items.append(item)
+            appended.append(item)
+            if json_data:
+                new_keys |= set(json_data.keys())
+
+        # Enforce MAX_LINES — bulk trim + reset if over limit
+        if len(self._items) > self._MAX_LINES:
+            self._items = self._items[-self._MAX_LINES:]
+            self.beginResetModel()
+            self._visible = [it for it in self._items if it.visible]
+            self.endResetModel()
+            self.rows_appended.emit()
+        else:
+            newly_visible = [it for it in appended if it.visible]
+            if newly_visible:
+                first = len(self._visible)
+                self.beginInsertRows(QModelIndex(), first, first + len(newly_visible) - 1)
+                self._visible.extend(newly_visible)
+                self.endInsertRows()
+                self.rows_appended.emit()
+
+        if new_keys - self._json_keys:
+            self._json_keys |= new_keys
+            self.json_keys_updated.emit(self._json_keys.copy())
+
+    def apply_filter(self, terms: list[TermRow]) -> None:
+        self._current_filter_terms = terms
+        self.beginResetModel()
+        self._visible = []
+        for item in self._items:
+            item.visible = _line_matches(item.message, self._current_filter_terms)
+            if item.visible:
+                self._visible.append(item)
+        self.endResetModel()
+        self.filter_applied.emit()
+
+    def clear(self) -> None:
+        self.beginResetModel()
+        self._items.clear()
+        self._visible.clear()
+        self._json_keys.clear()
+        self.endResetModel()
+
+    def get_json_keys(self) -> set[str]:
+        return self._json_keys.copy()
+
+    def visible_count(self) -> int:
+        return len(self._visible)
 
 
 # ── LogHighlighter ─────────────────────────────────────────────────────────────
