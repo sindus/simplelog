@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -36,10 +35,10 @@ from PyQt6.QtGui import (
     QShortcut,
     QSyntaxHighlighter,
     QTextCharFormat,
-    QTextCursor,
 )
 from PyQt6.QtWidgets import (
     QAbstractButton,
+    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QCheckBox,
@@ -51,6 +50,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -1524,7 +1524,7 @@ class _LogTextEdit(QTextEdit):
 
 
 class LogViewer(QWidget):
-    stop_requested = pyqtSignal()
+    stop_requested    = pyqtSignal()
     json_keys_updated = pyqtSignal(set)
     lines_appended    = pyqtSignal()
     filter_applied    = pyqtSignal()
@@ -1534,16 +1534,29 @@ class LogViewer(QWidget):
     def __init__(self, source_type: str = "cloudwatch", parent=None):
         super().__init__(parent)
         self._source_type = source_type
-        self._line_count  = 0
+        self._search_highlights: dict[int, list[tuple[int, int]]] = {}
+
+        self._model = LogModel(self)
+        self._model.json_keys_updated.connect(self.json_keys_updated)
+        self._model.rows_appended.connect(self._on_rows_appended)
+        self._model.filter_applied.connect(self.filter_applied)
+        self._model._MAX_LINES = self._MAX_LINES
+
         self._build_ui()
-        self._raw_events: deque[tuple[int, str]] = deque(maxlen=self._MAX_LINES)
-        self._json_keys: set[str] = set()
-        self._filtering: bool = False
-        self._pending_during_filter: list[tuple[int, str]] = []
-        self._current_filter_terms: list[TermRow] = []
+
         _key = id(self)
         i18n.register(_key, self.retranslate)
         self.destroyed.connect(lambda _=None, k=_key: i18n.unregister(k))
+
+    @property
+    def show_timestamps(self) -> bool:
+        return self.timestamps_cb.isChecked()
+
+    def _on_rows_appended(self) -> None:
+        if self.autoscroll_cb.isChecked():
+            self._list_view.scrollToBottom()
+        self.lines_appended.emit()
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._model.visible_count()))
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1560,7 +1573,6 @@ class LogViewer(QWidget):
         tb.setContentsMargins(12, 0, 12, 0)
         tb.setSpacing(8)
 
-        # Source badge
         src_color = _SOURCE_COLORS.get(self._source_type, C_TEXT)
         self._source_badge = QLabel(self._source_type.upper())
         self._source_badge.setStyleSheet(
@@ -1584,6 +1596,9 @@ class LogViewer(QWidget):
 
         self.timestamps_cb = QCheckBox()
         self.timestamps_cb.setChecked(True)
+        self.timestamps_cb.stateChanged.connect(
+            lambda _: self._list_view.viewport().update()
+        )
 
         self.clear_btn = QPushButton()
         self.clear_btn.setObjectName("danger")
@@ -1605,18 +1620,23 @@ class LogViewer(QWidget):
         tb.addWidget(self.stop_btn)
         layout.addWidget(toolbar)
 
-        # ── Text area ──
-        self.text_edit = _LogTextEdit(self)
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        self.text_edit.setStyleSheet(
-            f"background: {C_RAIL}; border: none; border-radius: 0;"
-            "font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;"
-            "font-size: 12px; color: #d4d4d4;"
+        # ── List view ──
+        self._delegate = LogDelegate(viewer=self)
+        self._list_view = QListView()
+        self._list_view.setModel(self._model)
+        self._list_view.setItemDelegate(self._delegate)
+        self._list_view.setUniformItemSizes(False)
+        self._list_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._list_view.setStyleSheet(
+            f"QListView {{ background: {C_RAIL}; border: none; border-radius: 0; }}"
+            f"QListView::item:selected {{ background: #1a3a6e33; }}"
         )
-        self.text_edit.enter_pressed.connect(self._insert_separator)
-        self._highlighter = LogHighlighter(self.text_edit.document())
-        layout.addWidget(self.text_edit)
+        font = self._list_view.font()
+        font.setFamily("JetBrains Mono, Fira Code, Cascadia Code, monospace")
+        font.setPointSize(9)
+        self._list_view.setFont(font)
+        layout.addWidget(self._list_view)
 
         self.retranslate()
 
@@ -1627,170 +1647,73 @@ class LogViewer(QWidget):
         self.timestamps_cb.setText(i18n.tr("viewer_timestamps"))
         self.clear_btn.setText(i18n.tr("viewer_clear"))
         self.stop_btn.setText(i18n.tr("viewer_stop"))
-        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._model.visible_count()))
 
-    # ── Public API ────────────────────────────────────────────────────────────
-
-    def set_title(self, text: str):
+    def set_title(self, text: str) -> None:
         self.title_label.setText(text)
 
-    def append_events(self, events: list[tuple[int, str]]):
-        # 1. Buffer all raw events (deque caps at _MAX_LINES automatically)
-        for ev in events:
-            self._raw_events.append(ev)
+    def append_events(self, events: list[tuple[int, str]]) -> None:
+        self._model.append_events(events)
 
-        # 2. Detect JSON keys (always, regardless of filter state)
-        new_keys: set[str] = set()
-        for _, message in events:
-            new_keys |= _extract_json_keys(message)
-        if new_keys - self._json_keys:
-            self._json_keys |= new_keys
-            self.json_keys_updated.emit(self._json_keys.copy())
+    def apply_filter(self, terms: list) -> None:
+        self._model.apply_filter(terms)
+        self.line_badge.setText(i18n.tr("viewer_lines", n=self._model.visible_count()))
 
-        # 3. If apply_filter is running, buffer events for later display
-        if self._filtering:
-            self._pending_during_filter.extend(events)
-            return
-
-        # 4. Write matching events to the QTextEdit display
-        cursor = self.text_edit.textCursor()
-        show_ts = self.timestamps_cb.isChecked()
-        wrote_any = False
-
-        for ts_ms, message in events:
-            if not _line_matches(message, self._current_filter_terms):
-                continue
-
-            # Trim oldest display line if at the display limit
-            if self._line_count >= self._MAX_LINES:
-                c2 = self.text_edit.textCursor()
-                c2.movePosition(QTextCursor.MoveOperation.Start)
-                c2.movePosition(
-                    QTextCursor.MoveOperation.Down,
-                    QTextCursor.MoveMode.KeepAnchor,
-                )
-                c2.removeSelectedText()
-                self._line_count -= 1
-
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            if show_ts and ts_ms:
-                ts_str = datetime.fromtimestamp(
-                    ts_ms / 1000, tz=UTC
-                ).strftime("%H:%M:%S")
-                line = f"[{ts_str}]  {message}"
-            else:
-                line = message
-
-            default_fmt = QTextCharFormat()
-            default_fmt.setForeground(QColor("#d4d4d4"))
-            if self._line_count > 0:
-                cursor.insertText("\n", default_fmt)
-            cursor.insertText(line, default_fmt)
-            self._line_count += 1
-            wrote_any = True
-
-        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
-        if self.autoscroll_cb.isChecked():
-            sb = self.text_edit.verticalScrollBar()
-            sb.setValue(sb.maximum())
-
-        if wrote_any:
-            self.lines_appended.emit()
-
-    def apply_filter(self, terms: list[TermRow]) -> None:
-        """Re-render the display from _raw_events through *terms*."""
-        self._current_filter_terms = terms
-        if self._filtering:
-            # Re-entrant call during processEvents() — latest terms recorded above; outer call will use them
-            return
-        self._filtering = True
-        self._pending_during_filter.clear()
-
-        self.text_edit.clear()
-        self._line_count = 0
-
-        cursor = self.text_edit.textCursor()
-        show_ts = self.timestamps_cb.isChecked()
-
-        for ts_ms, message in self._raw_events:
-            if not _line_matches(message, terms):
-                continue
-
-            if show_ts and ts_ms:
-                ts_str = datetime.fromtimestamp(
-                    ts_ms / 1000, tz=UTC
-                ).strftime("%H:%M:%S")
-                line = f"[{ts_str}]  {message}"
-            else:
-                line = message
-
-            default_fmt = QTextCharFormat()
-            default_fmt.setForeground(QColor("#d4d4d4"))
-            if self._line_count > 0:
-                cursor.insertText("\n", default_fmt)
-            cursor.insertText(line, default_fmt)
-            self._line_count += 1
-
-            # UI-freeze mitigation: yield to the event loop every 500 lines
-            if self._line_count % 500 == 0:
-                QApplication.processEvents()
-
-        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
-        self._filtering = False
-
-        # Flush events that arrived during filtering
-        if self._pending_during_filter:
-            pending = self._pending_during_filter[:]
-            self._pending_during_filter.clear()
-            self.append_events(pending)
-
-        if self.autoscroll_cb.isChecked():
-            sb = self.text_edit.verticalScrollBar()
-            sb.setValue(sb.maximum())
-
-        self.filter_applied.emit()
-
-    def get_json_keys(self) -> set[str]:
-        return self._json_keys.copy()
-
-    def apply_search(self, terms: list[TermRow]) -> list[tuple[int, int]]:
-        """Highlight search terms and return sorted (position, length) match list."""
-        self._highlighter.set_search_terms(terms)
-        matches: list[tuple[int, int]] = []
-        active = [t for t in terms if t.text.strip()]
+    def apply_search(self, terms: list) -> list:
+        """Return (visible_row_idx, char_start, char_len) for every match."""
+        self._search_highlights.clear()
+        active = [t for t in terms if t.text.strip() and not t.key]
         if not active:
-            return matches
-        text = self.text_edit.toPlainText()
-        for term in active:
-            pattern = re.compile(re.escape(term.text), re.IGNORECASE)
-            for m in pattern.finditer(text):
-                matches.append((m.start(), m.end() - m.start()))
-        return sorted(set(matches), key=lambda x: x[0])
+            self._delegate.set_search_highlights({})
+            self._list_view.viewport().update()
+            return []
 
-    def clear(self):
-        self.text_edit.clear()
-        self._line_count = 0
-        self._raw_events.clear()
-        self._json_keys = set()
-        self._current_filter_terms = []
+        results: list[tuple[int, int, int]] = []
+        highlights: dict[int, list[tuple[int, int]]] = {}
+
+        for vis_idx in range(self._model.rowCount()):
+            item = self._model.data(self._model.index(vis_idx), _ITEM_ROLE)
+            if item is None:
+                continue
+            for term in active:
+                pattern = re.compile(re.escape(term.text), re.IGNORECASE)
+                for m in pattern.finditer(item.message):
+                    results.append((vis_idx, m.start(), m.end() - m.start()))
+                    highlights.setdefault(vis_idx, []).append(
+                        (m.start(), m.end() - m.start())
+                    )
+
+        self._search_highlights = highlights
+        self._delegate.set_search_highlights(highlights)
+        self._list_view.viewport().update()
+        return sorted(results, key=lambda t: (t[0], t[1]))
+
+    def scroll_to_search_match(self, vis_idx: int, char_start: int, char_len: int) -> None:
+        idx = self._model.index(vis_idx)
+        self._list_view.scrollTo(idx, QAbstractItemView.ScrollHint.EnsureVisible)
+        self._delegate.set_focused_match(vis_idx, char_start, char_len)
+        self._list_view.viewport().update()
+
+    def clear(self) -> None:
+        self._model.clear()
+        self._search_highlights.clear()
+        self._delegate.set_search_highlights({})
         self.line_badge.setText(i18n.tr("viewer_lines", n=0))
 
-    def _insert_separator(self):
-        from datetime import datetime
-        ts = datetime.now().strftime("%H:%M:%S")
-        sep = f"─── {ts} " + "─" * 52
-        cursor = self.text_edit.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if self._line_count > 0:
-            cursor.insertText("\n")
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor("#4a6080"))
-        cursor.insertText(sep, fmt)
-        cursor.setCharFormat(QTextCharFormat())  # reset to default
-        self._line_count += 1
-        self.line_badge.setText(i18n.tr("viewer_lines", n=self._line_count))
-        sb = self.text_edit.verticalScrollBar()
-        sb.setValue(sb.maximum())
+    def get_json_keys(self) -> set:
+        return self._model.get_json_keys()
+
+    def copy(self) -> None:
+        """Copy selected rows' text to clipboard."""
+        indexes = self._list_view.selectedIndexes()
+        if not indexes:
+            return
+        texts = []
+        for idx in sorted(indexes, key=lambda i: i.row()):
+            item = self._model.data(idx, _ITEM_ROLE)
+            if item:
+                texts.append(item.message)
+        QApplication.clipboard().setText("\n".join(texts))
 
 
 # ── Sidebar helper: one term input row ────────────────────────────────────────
@@ -2348,11 +2271,8 @@ class FilterSearchSidebar(QWidget):
     def _scroll_to_match(self, index: int) -> None:
         if self._active_viewer is None or not self._search_matches:
             return
-        pos, length = self._search_matches[index]
-        cursor = self._active_viewer.text_edit.textCursor()
-        cursor.setPosition(pos)
-        cursor.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
-        self._active_viewer.text_edit.setTextCursor(cursor)
+        vis_idx, char_start, char_len = self._search_matches[index]
+        self._active_viewer.scroll_to_search_match(vis_idx, char_start, char_len)
 
     def _update_hits_label(self) -> None:
         n = len(self._search_matches)
@@ -2637,13 +2557,10 @@ class MainWindow(QMainWindow):
         """Edit → Copy: copy selected text from active viewer."""
         viewer = self._active_viewer()
         if viewer:
-            viewer.text_edit.copy()
+            viewer.copy()
 
     def _action_break(self) -> None:
-        """Edit → Break: insert a visual separator in the active viewer."""
-        viewer = self._active_viewer()
-        if viewer:
-            viewer._insert_separator()
+        """Edit → Break: no-op (separator not supported in list view)."""
 
     def _action_help(self) -> None:
         """Help → CLI Reference: show documentation dialog."""
