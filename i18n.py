@@ -70,7 +70,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "update_up_to_date":     "You are up to date  ({version}).",
         "update_available":      "Update available: {latest}\n\nCurrent version: {current}",
         "update_download":       "Download",
+        "update_install":        "Install Update",
+        "update_downloading":    "Downloading update…",
+        "update_restarting":     "Update downloaded. The app will restart now.",
         "update_error":          "Could not check for updates:\n{error}",
+        "update_install_error":  "Update failed:\n{error}",
         # ── Status bar ────────────────────────────────────────────────
         "status_ready":          "Ready",
         "history_loaded":        "History loaded: {n:,} events — tailing…",
@@ -180,7 +184,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "update_up_to_date":     "L'application est à jour  ({version}).",
         "update_available":      "Mise à jour disponible : {latest}\n\nVersion actuelle : {current}",
         "update_download":       "Télécharger",
+        "update_install":        "Installer la mise à jour",
+        "update_downloading":    "Téléchargement de la mise à jour…",
+        "update_restarting":     "Mise à jour téléchargée. L'application va redémarrer.",
         "update_error":          "Impossible de vérifier les mises à jour :\n{error}",
+        "update_install_error":  "Échec de la mise à jour :\n{error}",
         # ── Status bar ────────────────────────────────────────────────
         "status_ready":          "Prêt",
         "history_loaded":        "Historique chargé : {n:,} événements — surveillance…",

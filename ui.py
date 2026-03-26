@@ -6,7 +6,12 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
+import stat
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -53,6 +58,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -2483,11 +2489,97 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle(i18n.tr("update_title"))
         box.setText(i18n.tr("update_available", latest=latest, current=__version__))
-        download_btn = box.addButton(i18n.tr("update_download"), QMessageBox.ButtonRole.AcceptRole)
+
+        can_auto = self._auto_update_asset_url(latest) is not None
+        if can_auto:
+            action_btn = box.addButton(i18n.tr("update_install"), QMessageBox.ButtonRole.AcceptRole)
+        else:
+            action_btn = box.addButton(i18n.tr("update_download"), QMessageBox.ButtonRole.AcceptRole)
         box.addButton(QMessageBox.StandardButton.Close)
         box.exec()
-        if box.clickedButton() is download_btn:
+        if box.clickedButton() is not action_btn:
+            return
+        if can_auto:
+            self._install_update(latest)
+        else:
             QDesktopServices.openUrl(QUrl(url))
+
+    def _auto_update_asset_url(self, tag: str) -> str | None:
+        """Return the direct download URL for this platform+tag, or None if auto-update is unsupported."""
+        base = f"https://github.com/sindus/simplelog/releases/download/{tag}"
+        if os.environ.get("APPIMAGE"):
+            return f"{base}/simplelog-x86_64.AppImage"
+        if getattr(sys, "frozen", False) and platform.system() == "Darwin":
+            return f"{base}/SimpleLog-macOS.dmg"
+        return None
+
+    def _install_update(self, tag: str) -> None:
+        from version import __version__
+        from workers import DownloadWorker
+
+        asset_url = self._auto_update_asset_url(tag)
+        if asset_url is None:
+            return
+
+        suffix = ".AppImage" if asset_url.endswith(".AppImage") else ".dmg"
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+
+        progress = QProgressDialog(i18n.tr("update_downloading"), None, 0, 100, self)
+        progress.setWindowTitle(i18n.tr("update_title"))
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+
+        self._dl_worker = DownloadWorker(asset_url, tmp_path, __version__)
+        self._dl_worker.progress.connect(progress.setValue)
+        self._dl_worker.error.connect(lambda msg: (
+            progress.close(),
+            QMessageBox.warning(self, i18n.tr("update_title"), i18n.tr("update_install_error", error=msg)),
+        ))
+        self._dl_worker.finished.connect(lambda path: self._apply_update(path, progress))
+        self._dl_worker.start()
+
+    def _apply_update(self, tmp_path: str, progress: QProgressDialog) -> None:
+        progress.close()
+        QMessageBox.information(self, i18n.tr("update_title"), i18n.tr("update_restarting"))
+
+        pid = os.getpid()
+        if tmp_path.endswith(".AppImage"):
+            old_path = os.environ["APPIMAGE"]
+            script = (
+                f"#!/bin/sh\n"
+                f"while kill -0 {pid} 2>/dev/null; do sleep 0.1; done\n"
+                f"mv '{tmp_path}' '{old_path}'\n"
+                f"chmod +x '{old_path}'\n"
+                f"'{old_path}' &\n"
+                f"rm -- \"$0\"\n"
+            )
+        else:
+            # macOS: replace .app bundle from mounted DMG
+            app_bundle = os.path.abspath(
+                os.path.join(os.path.dirname(sys.executable), "..", "..", "..")
+            )
+            app_dir = os.path.dirname(app_bundle)
+            script = (
+                f"#!/bin/sh\n"
+                f"while kill -0 {pid} 2>/dev/null; do sleep 0.1; done\n"
+                f"MOUNT=$(hdiutil attach '{tmp_path}' -nobrowse -quiet | awk 'END{{print $NF}}')\n"
+                f"rm -rf '{app_bundle}'\n"
+                f"cp -R \"$MOUNT/SimpleLog.app\" '{app_dir}/'\n"
+                f"hdiutil detach \"$MOUNT\" -quiet\n"
+                f"rm '{tmp_path}'\n"
+                f"open '{app_bundle}'\n"
+                f"rm -- \"$0\"\n"
+            )
+
+        fd, script_path = tempfile.mkstemp(suffix=".sh")
+        os.write(fd, script.encode())
+        os.close(fd)
+        os.chmod(script_path, stat.S_IRWXU)
+        subprocess.Popen(["/bin/sh", script_path], close_fds=True)  # noqa: S603
+        QApplication.quit()
 
     def _action_copy(self) -> None:
         """Edit → Copy: copy selected text from active viewer."""

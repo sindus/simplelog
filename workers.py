@@ -1,4 +1,6 @@
+import contextlib
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -194,4 +196,42 @@ class UpdateWorker(QThread):
             else:
                 self.up_to_date.emit(self._current)
         except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class DownloadWorker(QThread):
+    """Downloads a file from a URL, emitting progress as it goes."""
+    progress = pyqtSignal(int)   # 0-100
+    finished = pyqtSignal(str)   # destination path
+    error    = pyqtSignal(str)
+
+    def __init__(self, url: str, dest: str, current_version: str):
+        super().__init__()
+        self._url = url
+        self._dest = dest
+        self._current = current_version
+
+    def run(self):
+        try:
+            req = urllib.request.Request(
+                self._url,
+                headers={"User-Agent": f"SimpleLog/{self._current}"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(self._dest, "wb") as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            self.progress.emit(int(downloaded * 100 / total))
+            self.progress.emit(100)
+            self.finished.emit(self._dest)
+        except Exception as exc:
+            with contextlib.suppress(OSError):
+                os.unlink(self._dest)
             self.error.emit(str(exc))
