@@ -114,3 +114,64 @@ def test_invalid_json_uses_fallback_regex():
     line = '{"userId": 1, broken}'
     keys = _extract_json_keys(line)
     assert "userId" in keys
+
+
+# ── KV matching ───────────────────────────────────────────────────────────────
+
+def test_kv_match_exact():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="toto", operator="", key="skills")]
+    assert _line_matches('{"skills": "toto", "source": "api"}', terms) is True
+
+
+def test_kv_match_case_insensitive():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="TOTO", operator="", key="skills")]
+    assert _line_matches('{"skills": "toto"}', terms) is True
+
+
+def test_kv_match_partial():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="tot", operator="", key="skills")]
+    assert _line_matches('{"skills": "toto"}', terms) is True
+
+
+def test_kv_no_match_wrong_value():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="other", operator="", key="skills")]
+    assert _line_matches('{"skills": "toto"}', terms) is False
+
+
+def test_kv_no_match_not_json():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="toto", operator="", key="skills")]
+    assert _line_matches("plain text line with toto", terms) is False
+
+
+def test_kv_no_match_missing_key():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="toto", operator="", key="skills")]
+    assert _line_matches('{"other": "toto"}', terms) is False
+
+
+def test_kv_empty_text_matches_key_presence():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="", operator="", key="skills")]
+    assert _line_matches('{"skills": "anything"}', terms) is True
+    assert not _line_matches('{"other": "val"}', terms)
+
+
+def test_kv_mixed_with_text_term_and():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [
+        TermRow(text="error", operator=""),
+        TermRow(text="toto", operator="AND", key="skills"),
+    ]
+    assert _line_matches('error: {"skills": "toto"}', terms) is True
+    assert not _line_matches('info: {"skills": "toto"}', terms)
+
+
+def test_kv_numeric_value():
+    TermRow, _line_matches, _ = _import_logic()
+    terms = [TermRow(text="401", operator="", key="status")]
+    assert _line_matches('{"status": 401}', terms) is True

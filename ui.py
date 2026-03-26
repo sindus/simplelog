@@ -990,16 +990,47 @@ class SideStack(QStackedWidget):
 class TermRow:
     text: str
     operator: str  # "AND" | "OR" | "" — empty string for the first term (ignored)
+    key: str = ""  # non-empty → JSON key=value match mode
 
 
 def _line_matches(line: str, terms: list[TermRow]) -> bool:
     """Return True if *line* satisfies the AND/OR chain of *terms* (case-insensitive)."""
     if not terms:
         return True
-    low = line.lower()
-    result = terms[0].text.lower() in low
+
+    def _term_hit(term: TermRow) -> bool:
+        if not term.key:
+            # Plain text match
+            return term.text.lower() in line.lower()
+        # Key=value match: parse line as JSON, check data[key] contains text
+        # Try the full line first, then search for an embedded JSON object
+        data = None
+        stripped = line.strip()
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                data = parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+        if data is None:
+            # Try to find an embedded JSON object in the line
+            start = line.find("{")
+            if start != -1:
+                try:
+                    parsed = json.loads(line[start:])
+                    if isinstance(parsed, dict):
+                        data = parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        if data is None or term.key not in data:
+            return False
+        if term.text == "":
+            return True  # key presence check
+        return term.text.lower() in str(data[term.key]).lower()
+
+    result = _term_hit(terms[0])
     for term in terms[1:]:
-        hit = term.text.lower() in low
+        hit = _term_hit(term)
         result = (result and hit) if term.operator == "AND" else (result or hit)
     return result
 
