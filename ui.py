@@ -1047,6 +1047,51 @@ def _extract_json_keys(line: str) -> set[str]:
     return set(re.findall(r'"([\w_-]+)"\s*:', line))
 
 
+# ── JSON parsing + line classification ─────────────────────────────────────────
+
+def _try_parse_json(message: str) -> dict | None:
+    """Try to parse message as a JSON object. Returns dict or None."""
+    stripped = message.strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+_CLASSIFY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("error", re.compile(r"\b(CRITICAL|FATAL|ERROR|ERR)\b", re.IGNORECASE)),
+    ("warn",  re.compile(r"\b(WARN(?:ING)?)\b",             re.IGNORECASE)),
+    ("info",  re.compile(r"\bINFO\b",                       re.IGNORECASE)),
+    ("debug", re.compile(r"\bDEBUG\b",                      re.IGNORECASE)),
+    ("trace", re.compile(r"\bTRACE\b",                      re.IGNORECASE)),
+]
+
+
+def _classify_line(text: str) -> str:
+    """Return severity level string for a log line."""
+    for level, pattern in _CLASSIFY_PATTERNS:
+        if pattern.search(text):
+            return level
+    return "plain"
+
+
+_MAIN_KEYS = (
+    "message", "msg", "error", "err", "data", "content", "text",
+    "body", "log", "description", "details", "payload", "result", "output", "value",
+)
+
+
+def _resolve_main_key(data: dict) -> str | None:
+    """Return the first priority key found in data, or None."""
+    for k in _MAIN_KEYS:
+        if k in data:
+            return k
+    return None
+
+
 # ── LogHighlighter ─────────────────────────────────────────────────────────────
 
 class LogHighlighter(QSyntaxHighlighter):
