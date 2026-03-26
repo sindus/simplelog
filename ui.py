@@ -33,8 +33,6 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPalette,
     QShortcut,
-    QSyntaxHighlighter,
-    QTextCharFormat,
 )
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -1460,49 +1458,6 @@ class LogDelegate(QStyledItemDelegate):
             painter.fillRect(QRect(text_x + prefix_w, y, match_w, h), QColor(color))
 
 
-# ── LogHighlighter ─────────────────────────────────────────────────────────────
-
-class LogHighlighter(QSyntaxHighlighter):
-    RULES = [
-        (re.compile(r"\b(CRITICAL|FATAL)\b",  re.IGNORECASE), C_ERR,   True),
-        (re.compile(r"\b(ERROR|ERR)\b",        re.IGNORECASE), C_ERR,   False),
-        (re.compile(r"\b(WARN(?:ING)?)\b",     re.IGNORECASE), C_WARN,  False),
-        (re.compile(r"\b(INFO)\b",             re.IGNORECASE), C_INFO,  False),
-        (re.compile(r"\b(DEBUG)\b",            re.IGNORECASE), C_DEBUG, False),
-        (re.compile(r"\b(TRACE)\b",            re.IGNORECASE), C_TRACE, False),
-        (re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"), C_TS,  False),
-        (re.compile(r'"[\w_-]+"(?=\s*:)'),     C_TRACE, False),
-    ]
-
-    def __init__(self, document):
-        super().__init__(document)
-        self._search_rules: list[re.Pattern[str]] = []
-
-    def highlightBlock(self, text: str) -> None:  # noqa: N802
-        for pattern, color, bold in self.RULES:
-            fmt = QTextCharFormat()
-            fmt.setForeground(QColor(color))
-            if bold:
-                fmt.setFontWeight(700)
-            for m in pattern.finditer(text):
-                self.setFormat(m.start(), m.end() - m.start(), fmt)
-        # Search highlights: background only, so severity colours are preserved
-        if self._search_rules:
-            search_fmt = QTextCharFormat()
-            search_fmt.setBackground(QColor("#3a3a00"))
-            for pattern in self._search_rules:
-                for m in pattern.finditer(text):
-                    self.setFormat(m.start(), m.end() - m.start(), search_fmt)
-
-    def set_search_terms(self, terms: list[TermRow]) -> None:
-        self._search_rules = [
-            re.compile(re.escape(t.text), re.IGNORECASE)
-            for t in terms
-            if t.text.strip()
-        ]
-        self.rehighlight()
-
-
 # ── LogViewer ─────────────────────────────────────────────────────────────────
 
 _SOURCE_COLORS = {
@@ -1510,17 +1465,6 @@ _SOURCE_COLORS = {
     "file":       C_INFO,
     "stdin":      C_WARN,
 }
-
-
-class _LogTextEdit(QTextEdit):
-    """QTextEdit that emits enter_pressed on Return/Enter key."""
-    enter_pressed = pyqtSignal()
-
-    def keyPressEvent(self, event):  # noqa: N802
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.enter_pressed.emit()
-        else:
-            super().keyPressEvent(event)
 
 
 class LogViewer(QWidget):
@@ -2456,13 +2400,6 @@ class MainWindow(QMainWindow):
         self._act_copy.triggered.connect(self._action_copy)
         self._menu_edit.addAction(self._act_copy)
 
-        self._menu_edit.addSeparator()
-
-        self._act_break = QAction(self)
-        self._act_break.setShortcut(QKeySequence("Ctrl+Return"))
-        self._act_break.triggered.connect(self._action_break)
-        self._menu_edit.addAction(self._act_break)
-
         # ── Language ──
         self._menu_lang = mb.addMenu("")
         ag = QButtonGroup(self)  # not actually needed but keeps logic tidy
@@ -2494,7 +2431,6 @@ class MainWindow(QMainWindow):
         self._act_quit.setText(i18n.tr("action_quit"))
         self._menu_edit.setTitle(i18n.tr("menu_edit"))
         self._act_copy.setText(i18n.tr("action_copy"))
-        self._act_break.setText(i18n.tr("action_break"))
         self._menu_lang.setTitle(i18n.tr("menu_language"))
         self._act_lang_en.setText(i18n.tr("lang_english"))
         self._act_lang_en.setChecked(locale == "en")
@@ -2558,9 +2494,6 @@ class MainWindow(QMainWindow):
         viewer = self._active_viewer()
         if viewer:
             viewer.copy()
-
-    def _action_break(self) -> None:
-        """Edit → Break: no-op (separator not supported in list view)."""
 
     def _action_help(self) -> None:
         """Help → CLI Reference: show documentation dialog."""

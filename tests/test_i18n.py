@@ -90,7 +90,7 @@ def test_retranslate_all_updates_locale():
 _REQUIRED_KEYS = [
     "menu_file", "menu_edit", "menu_language", "menu_help",
     "action_open", "action_update", "action_quit",
-    "action_copy", "action_break",
+    "action_copy",
     "cw_title", "file_title",
     "viewer_autoscroll", "viewer_clear", "viewer_stop",
     "open_mode_tab", "open_mode_vertical", "open_mode_horizontal",
