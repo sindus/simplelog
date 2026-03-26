@@ -1383,53 +1383,77 @@ class LogViewer(QWidget):
 # ── Sidebar helper: one term input row ────────────────────────────────────────
 
 class _TermRowWidget(QWidget):
-    """A single filter/search term row: [op toggle] [input] [×]."""
+    """A single filter/search term row: [op toggle] [input(s)] [×]."""
 
     changed          = pyqtSignal()
     remove_requested = pyqtSignal()
 
-    def __init__(self, operator: str = "", placeholder: str = "", parent=None):
+    def __init__(self, operator: str = "", mode: str = "text", parent=None):
         super().__init__(parent)
-        self._operator = operator  # "" for the first row
+        self._operator = operator
+        self._mode = mode  # "text" | "kv"
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
 
-        # Operator toggle button (AND ↔ OR), hidden for first row
+        # Operator toggle (AND ↔ OR), hidden for first row
         self._op_btn = QPushButton(operator or "AND")
-        self._op_btn.setFixedSize(42, 24)
+        self._op_btn.setFixedSize(36, 20)
         self._op_btn.setVisible(bool(operator))
         self._op_btn.setStyleSheet(
-            f"QPushButton {{ background: {C_SEL_BG}; color: {C_ACCENT}; "
-            f"border-radius: 4px; font-size: 10px; font-weight: bold; border: none; }}"
-            f"QPushButton:hover {{ background: {C_DIVIDER}; }}"
+            f"QPushButton {{ background: #78d9ec1a; color: {C_TS}; "
+            f"border-radius: 3px; font-size: 9px; font-weight: bold; border: none; }}"
+            f"QPushButton:hover {{ background: #78d9ec33; }}"
         )
         self._op_btn.clicked.connect(self._toggle_operator)
         row.addWidget(self._op_btn)
 
-        # Invisible spacer to align inputs when no op button
+        # Spacer when no op button (aligns inputs across rows)
         self._op_spacer = QWidget()
-        self._op_spacer.setFixedSize(42, 24)
+        self._op_spacer.setFixedSize(36, 20)
         self._op_spacer.setVisible(not bool(operator))
         row.addWidget(self._op_spacer)
 
-        # Term text input
-        self._input = QLineEdit()
-        self._input.setPlaceholderText(placeholder)
-        self._input.setStyleSheet(
-            f"background: {C_CARD}; color: {C_TEXT}; border: 1px solid {C_DIVIDER}; "
-            "border-radius: 4px; padding: 2px 6px; font-size: 12px;"
+        _input_style = (
+            f"background: transparent; color: {C_TEXT}; border: none; "
+            "padding: 0 4px; font-size: 11px;"
         )
-        self._input.textChanged.connect(self.changed)
-        row.addWidget(self._input, stretch=1)
+
+        if mode == "kv":
+            self._key_input = QLineEdit()
+            self._key_input.setFixedWidth(60)
+            self._key_input.setStyleSheet(
+                f"background: transparent; color: {C_TRACE}; border: none; "
+                "padding: 0 4px; font-size: 11px;"
+            )
+            self._key_input.textChanged.connect(self.changed)
+            row.addWidget(self._key_input)
+
+            eq_lbl = QLabel("=")
+            eq_lbl.setStyleSheet(f"color: {C_MUTED}; font-size: 11px; background: transparent;")
+            eq_lbl.setFixedWidth(10)
+            row.addWidget(eq_lbl)
+
+            self._val_input = QLineEdit()
+            self._val_input.setStyleSheet(_input_style)
+            self._val_input.textChanged.connect(self.changed)
+            row.addWidget(self._val_input, stretch=1)
+
+            # Alias for common API (set_placeholder, focus_input target val)
+            self._input = self._val_input
+        else:
+            self._input = QLineEdit()
+            self._input.setStyleSheet(_input_style)
+            self._input.textChanged.connect(self.changed)
+            row.addWidget(self._input, stretch=1)
 
         # Remove button
         self._rm_btn = QPushButton("×")
-        self._rm_btn.setFixedSize(24, 24)
+        self._rm_btn.setFixedSize(20, 20)
         self._rm_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {C_MUTED}; "
-            "border: none; font-size: 16px; }}"
+            "border: none; font-size: 14px; padding: 0; }}"
             f"QPushButton:hover {{ color: {C_ERR}; }}"
         )
         self._rm_btn.clicked.connect(self.remove_requested)
@@ -1441,6 +1465,12 @@ class _TermRowWidget(QWidget):
         self.changed.emit()
 
     def to_term_row(self) -> TermRow:
+        if self._mode == "kv":
+            return TermRow(
+                text=self._val_input.text(),
+                operator=self._operator,
+                key=self._key_input.text(),
+            )
         return TermRow(text=self._input.text(), operator=self._operator)
 
     def set_placeholder(self, text: str) -> None:
@@ -1449,8 +1479,16 @@ class _TermRowWidget(QWidget):
     def focus_input(self) -> None:
         self._input.setFocus()
 
+    def focus_value_input(self) -> None:
+        """Focus the value input (kv mode) or the regular input (text mode)."""
+        self._input.setFocus()
+
     def set_text(self, text: str) -> None:
-        self._input.setText(text)
+        """In kv mode, sets the key field. In text mode, sets the single input."""
+        if self._mode == "kv":
+            self._key_input.setText(text)
+        else:
+            self._input.setText(text)
 
 
 # ── Right sidebar: filter + search + JSON keys ─────────────────────────────────
