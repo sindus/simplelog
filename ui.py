@@ -1498,9 +1498,9 @@ class FilterSearchSidebar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(280)
+        self.setFixedWidth(260)
         self.setStyleSheet(
-            f"FilterSearchSidebar {{ background: {C_RAIL}; "
+            f"FilterSearchSidebar {{ background: #090909; "
             f"border-left: 1px solid {C_DIVIDER}; }}"
         )
 
@@ -1510,6 +1510,10 @@ class FilterSearchSidebar(QWidget):
         self._search_term_widgets: list[_TermRowWidget] = []
         self._filter_term_widgets: list[_TermRowWidget] = []
         self._section_labels: list[QLabel] = []
+
+        self._search_collapsed: bool = False
+        self._filter_collapsed: bool = False
+        self._json_collapsed: bool = False
 
         # Debounce timers
         self._filter_timer = QTimer(self)
@@ -1535,6 +1539,89 @@ class FilterSearchSidebar(QWidget):
 
     # ── UI construction ───────────────────────────────────────────────────────
 
+    def _toggle_section(self, name: str) -> None:
+        attr = f"_{name}_collapsed"
+        setattr(self, attr, not getattr(self, attr))
+        self._apply_collapse(name)
+
+    def _apply_collapse(self, name: str) -> None:
+        collapsed = getattr(self, f"_{name}_collapsed")
+        content = getattr(self, f"_{name}_content")
+        content.setVisible(not collapsed)
+        lbl = getattr(self, f"_{name}_arrow")
+        lbl.setText("▶" if collapsed else "▼")
+
+    def _make_collapsible_section(self, name: str, title_key: str) -> tuple:
+        """Returns (header_widget, content_widget). Stores _<name>_arrow label."""
+        header = QWidget()
+        header.setStyleSheet(
+            "QWidget { background: #111; border: none; }"
+            "QWidget:hover { background: #151515; }"
+        )
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.setFixedHeight(32)
+
+        h = QHBoxLayout(header)
+        h.setContentsMargins(12, 0, 12, 0)
+        h.setSpacing(8)
+
+        arrow = QLabel("▼")
+        arrow.setStyleSheet(f"color: {C_MUTED}; font-size: 9px; background: transparent;")
+        setattr(self, f"_{name}_arrow", arrow)
+
+        title = QLabel()
+        title.setStyleSheet(
+            "color: #999; font-size: 11px; font-weight: 500; background: transparent;"
+        )
+        title.setProperty("i18n_key", title_key)
+        self._section_labels.append(title)
+
+        badge = QLabel("")
+        badge.setStyleSheet(
+            f"color: {C_MUTED}; font-size: 9px; background: #1a1a1a; "
+            "border-radius: 8px; padding: 1px 6px;"
+        )
+        setattr(self, f"_{name}_badge", badge)
+
+        h.addWidget(arrow)
+        h.addWidget(title)
+        h.addStretch()
+        h.addWidget(badge)
+
+        header.mousePressEvent = lambda _ev, n=name: self._toggle_section(n)
+
+        content = QWidget()
+        content.setStyleSheet("background: #090909;")
+        setattr(self, f"_{name}_content", content)
+
+        return header, content
+
+    def _make_section_gap(self) -> QWidget:
+        gap = QWidget()
+        gap.setFixedHeight(2)
+        gap.setStyleSheet("background: #0d0d0d;")
+        return gap
+
+    def _add_btn_style(self) -> str:
+        return (
+            f"QPushButton {{ background: transparent; color: {C_MUTED}; "
+            f"border: 1px solid #2a2a2a; border-radius: 3px; "
+            f"font-size: 10px; padding: 2px 8px; }}"
+            f"QPushButton:hover {{ color: {C_TEXT}; border-color: #444; }}"
+        )
+
+    def _nav_btn_style(self) -> str:
+        return (
+            f"QPushButton {{ background: transparent; color: {C_MUTED}; "
+            f"border: none; font-size: 12px; padding: 2px 6px; }}"
+            f"QPushButton:hover {{ color: {C_TEXT}; }}"
+        )
+
+    def _term_block_style(self) -> str:
+        return (
+            "background: #161616; border: 1px solid #2c2c2c; border-radius: 5px;"
+        )
+
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1548,103 +1635,30 @@ class FilterSearchSidebar(QWidget):
         inner = QWidget()
         inner.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(inner)
-        layout.setContentsMargins(0, 0, 0, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         # ── SEARCH ──
-        layout.addWidget(self._make_section_header("sidebar_search"))
-        self._search_rows_widget = QWidget()
-        self._search_rows_widget.setStyleSheet("background: transparent;")
-        self._search_rows_layout = QVBoxLayout(self._search_rows_widget)
-        self._search_rows_layout.setContentsMargins(12, 0, 12, 0)
-        self._search_rows_layout.setSpacing(4)
-        layout.addWidget(self._search_rows_widget)
-        self._add_search_row("")   # initial empty row
+        search_header, self._search_content = self._make_collapsible_section("search", "sidebar_search")
+        layout.addWidget(search_header)
+        layout.addWidget(self._search_content)
+        self._build_search_content(self._search_content)
 
-        add_search = QHBoxLayout()
-        add_search.setContentsMargins(12, 4, 12, 0)
-        self._btn_add_search_and = QPushButton()
-        self._btn_add_search_and.clicked.connect(lambda: self._add_search_row("AND"))
-        self._btn_add_search_or  = QPushButton()
-        self._btn_add_search_or.clicked.connect(lambda: self._add_search_row("OR"))
-        for btn in (self._btn_add_search_and, self._btn_add_search_or):
-            btn.setFixedHeight(24)
-            btn.setStyleSheet(self._add_btn_style())
-        add_search.addWidget(self._btn_add_search_and)
-        add_search.addWidget(self._btn_add_search_or)
-        add_search.addStretch()
-        layout.addLayout(add_search)
-
-        nav = QHBoxLayout()
-        nav.setContentsMargins(12, 6, 12, 8)
-        self._btn_prev = QPushButton()
-        self._btn_next = QPushButton()
-        self._lbl_hits = QLabel()
-        self._lbl_hits.setStyleSheet(f"color: {C_MUTED}; font-size: 11px;")
-        for btn in (self._btn_prev, self._btn_next):
-            btn.setFixedHeight(28)
-            btn.setStyleSheet(self._nav_btn_style())
-        self._btn_prev.clicked.connect(self._search_prev)
-        self._btn_next.clicked.connect(self._search_next_match)
-        nav.addWidget(self._btn_prev)
-        nav.addWidget(self._btn_next)
-        nav.addWidget(self._lbl_hits)
-        nav.addStretch()
-        layout.addLayout(nav)
-
-        layout.addWidget(self._make_divider())
+        layout.addWidget(self._make_section_gap())
 
         # ── FILTER ──
-        layout.addWidget(self._make_section_header("sidebar_filter"))
-        self._filter_rows_widget = QWidget()
-        self._filter_rows_widget.setStyleSheet("background: transparent;")
-        self._filter_rows_layout = QVBoxLayout(self._filter_rows_widget)
-        self._filter_rows_layout.setContentsMargins(12, 0, 12, 0)
-        self._filter_rows_layout.setSpacing(4)
-        layout.addWidget(self._filter_rows_widget)
-        self._add_filter_row("")   # initial empty row
+        filter_header, self._filter_content = self._make_collapsible_section("filter", "sidebar_filter")
+        layout.addWidget(filter_header)
+        layout.addWidget(self._filter_content)
+        self._build_filter_content(self._filter_content)
 
-        add_filter = QHBoxLayout()
-        add_filter.setContentsMargins(12, 4, 12, 0)
-        self._btn_add_filter_and = QPushButton()
-        self._btn_add_filter_and.clicked.connect(lambda: self._add_filter_row("AND"))
-        self._btn_add_filter_or  = QPushButton()
-        self._btn_add_filter_or.clicked.connect(lambda: self._add_filter_row("OR"))
-        self._btn_add_filter_kv = QPushButton()
-        self._btn_add_filter_kv.clicked.connect(lambda: self._add_filter_row("AND", mode="kv"))
-        self._btn_add_filter_kv.setFixedHeight(24)
-        self._btn_add_filter_kv.setStyleSheet(self._add_btn_style())
-        for btn in (self._btn_add_filter_and, self._btn_add_filter_or):
-            btn.setFixedHeight(24)
-            btn.setStyleSheet(self._add_btn_style())
-        add_filter.addWidget(self._btn_add_filter_and)
-        add_filter.addWidget(self._btn_add_filter_or)
-        add_filter.addWidget(self._btn_add_filter_kv)
-        add_filter.addStretch()
-        layout.addLayout(add_filter)
-
-        live_row = QHBoxLayout()
-        live_row.setContentsMargins(12, 6, 12, 8)
-        self._cb_live = QCheckBox()
-        self._cb_live.setChecked(True)
-        self._cb_live.setStyleSheet(f"color: {C_MUTED}; font-size: 11px;")
-        live_row.addWidget(self._cb_live)
-        live_row.addStretch()
-        layout.addLayout(live_row)
-
-        layout.addWidget(self._make_divider())
+        layout.addWidget(self._make_section_gap())
 
         # ── JSON KEYS ──
-        layout.addWidget(self._make_section_header("sidebar_json_keys"))
-        self._json_container = QWidget()
-        self._json_container.setStyleSheet("background: transparent;")
-        self._json_layout = QVBoxLayout(self._json_container)
-        self._json_layout.setContentsMargins(12, 0, 12, 8)
-        self._json_layout.setSpacing(4)
-        self._lbl_json_ph = QLabel()
-        self._lbl_json_ph.setStyleSheet(f"color: {C_MUTED}; font-size: 11px;")
-        self._json_layout.addWidget(self._lbl_json_ph)
-        layout.addWidget(self._json_container)
+        json_header, self._json_content = self._make_collapsible_section("json", "sidebar_json_keys")
+        layout.addWidget(json_header)
+        layout.addWidget(self._json_content)
+        self._build_json_content(self._json_content)
 
         layout.addStretch()
 
@@ -1658,51 +1672,147 @@ class FilterSearchSidebar(QWidget):
 
         self.retranslate()
 
-    def _make_section_header(self, key: str) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        h = QHBoxLayout(w)
-        h.setContentsMargins(12, 12, 12, 4)
-        lbl = QLabel()
-        lbl.setStyleSheet(
-            f"color: {C_MUTED}; font-size: 10px; font-weight: bold; "
-            "text-transform: uppercase; background: transparent;"
-        )
-        lbl.setProperty("i18n_key", key)
-        self._section_labels.append(lbl)
-        h.addWidget(lbl)
-        h.addStretch()
-        return w
+    def _build_search_content(self, parent: QWidget) -> None:
+        vbox = QVBoxLayout(parent)
+        vbox.setContentsMargins(10, 8, 10, 8)
+        vbox.setSpacing(4)
 
-    def _make_divider(self) -> QFrame:
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(f"color: {C_DIVIDER};")
-        return line
+        # Term rows block
+        self._search_block = QWidget()
+        self._search_block.setStyleSheet(self._term_block_style())
+        self._search_rows_layout = QVBoxLayout(self._search_block)
+        self._search_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._search_rows_layout.setSpacing(0)
+        vbox.addWidget(self._search_block)
+        self._add_search_row("")   # initial empty row
 
-    def _add_btn_style(self) -> str:
-        return (
-            f"QPushButton {{ background: {C_SEL_BG}; color: {C_MUTED}; "
-            f"border-radius: 4px; font-size: 11px; padding: 0 8px; border: none; }}"
-            f"QPushButton:hover {{ color: {C_TEXT}; }}"
-        )
+        # Add AND/OR buttons
+        add_row = QHBoxLayout()
+        add_row.setSpacing(4)
+        add_row.setContentsMargins(0, 0, 0, 0)
+        self._btn_add_search_and = QPushButton()
+        self._btn_add_search_and.clicked.connect(lambda: self._add_search_row("AND"))
+        self._btn_add_search_or = QPushButton()
+        self._btn_add_search_or.clicked.connect(lambda: self._add_search_row("OR"))
+        for btn in (self._btn_add_search_and, self._btn_add_search_or):
+            btn.setFixedHeight(22)
+            btn.setStyleSheet(self._add_btn_style())
+        add_row.addWidget(self._btn_add_search_and)
+        add_row.addWidget(self._btn_add_search_or)
+        add_row.addStretch()
+        vbox.addLayout(add_row)
 
-    def _nav_btn_style(self) -> str:
-        return (
-            f"QPushButton {{ background: {C_SEL_BG}; color: {C_TEXT}; "
-            f"border-radius: 4px; font-size: 12px; padding: 0 10px; border: none; }}"
-            f"QPushButton:hover {{ background: {C_DIVIDER}; }}"
-        )
+        # Prev / Next / hits inline
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(4)
+        nav_row.setContentsMargins(0, 2, 0, 0)
+        self._btn_prev = QPushButton()
+        self._btn_next = QPushButton()
+        self._lbl_hits = QLabel()
+        self._lbl_hits.setStyleSheet(f"color: {C_MUTED}; font-size: 10px;")
+        for btn in (self._btn_prev, self._btn_next):
+            btn.setFixedHeight(22)
+            btn.setStyleSheet(self._nav_btn_style())
+        self._btn_prev.clicked.connect(self._search_prev)
+        self._btn_next.clicked.connect(self._search_next_match)
+        nav_row.addWidget(self._btn_prev)
+        nav_row.addWidget(self._btn_next)
+        nav_row.addWidget(self._lbl_hits)
+        nav_row.addStretch()
+        vbox.addLayout(nav_row)
+
+    def _build_filter_content(self, parent: QWidget) -> None:
+        vbox = QVBoxLayout(parent)
+        vbox.setContentsMargins(10, 8, 10, 8)
+        vbox.setSpacing(4)
+
+        self._filter_block = QWidget()
+        self._filter_block.setStyleSheet(self._term_block_style())
+        self._filter_rows_layout = QVBoxLayout(self._filter_block)
+        self._filter_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._filter_rows_layout.setSpacing(0)
+        vbox.addWidget(self._filter_block)
+        self._add_filter_row("")   # initial empty row
+
+        add_row = QHBoxLayout()
+        add_row.setSpacing(4)
+        add_row.setContentsMargins(0, 0, 0, 0)
+        self._btn_add_filter_and = QPushButton()
+        self._btn_add_filter_and.clicked.connect(lambda: self._add_filter_row("AND"))
+        self._btn_add_filter_or = QPushButton()
+        self._btn_add_filter_or.clicked.connect(lambda: self._add_filter_row("OR"))
+        self._btn_add_filter_kv = QPushButton()
+        self._btn_add_filter_kv.clicked.connect(lambda: self._add_filter_row("AND", mode="kv"))
+        for btn in (self._btn_add_filter_and, self._btn_add_filter_or, self._btn_add_filter_kv):
+            btn.setFixedHeight(22)
+            btn.setStyleSheet(self._add_btn_style())
+        add_row.addWidget(self._btn_add_filter_and)
+        add_row.addWidget(self._btn_add_filter_or)
+        add_row.addWidget(self._btn_add_filter_kv)
+        add_row.addStretch()
+        vbox.addLayout(add_row)
+
+        live_row = QHBoxLayout()
+        live_row.setContentsMargins(0, 2, 0, 0)
+        self._cb_live = QCheckBox()
+        self._cb_live.setChecked(True)
+        self._cb_live.setStyleSheet(f"color: {C_MUTED}; font-size: 10px;")
+        self._cb_live.stateChanged.connect(lambda _: self._filter_timer.start())
+        live_row.addWidget(self._cb_live)
+        live_row.addStretch()
+        vbox.addLayout(live_row)
+
+    def _build_json_content(self, parent: QWidget) -> None:
+        vbox = QVBoxLayout(parent)
+        vbox.setContentsMargins(10, 8, 10, 10)
+        vbox.setSpacing(4)
+
+        self._json_container = QWidget()
+        self._json_container.setStyleSheet("background: transparent;")
+        self._json_layout = QVBoxLayout(self._json_container)
+        self._json_layout.setContentsMargins(0, 0, 0, 0)
+        self._json_layout.setSpacing(4)
+        self._lbl_json_ph = QLabel()
+        self._lbl_json_ph.setStyleSheet(f"color: {C_MUTED}; font-size: 10px;")
+        self._json_layout.addWidget(self._lbl_json_ph)
+        vbox.addWidget(self._json_container)
 
     # ── Term row management ───────────────────────────────────────────────────
 
     def _add_search_row(self, operator: str) -> None:
+        if self._search_term_widgets:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("color: #2c2c2c; max-height: 1px;")
+            self._search_rows_layout.addWidget(sep)
         row = _TermRowWidget(operator, parent=self)
+        row.setContentsMargins(8, 4, 4, 4)
         row.changed.connect(self._on_search_changed)
         row.remove_requested.connect(lambda r=row: self._remove_search_row(r))
         self._search_term_widgets.append(row)
         self._search_rows_layout.addWidget(row)
         row.set_placeholder(i18n.tr("sidebar_term_ph"))
+
+    def _rebuild_row_block(
+        self,
+        block: QWidget,
+        layout: QVBoxLayout,
+        widgets: list,
+        section: str,
+    ) -> None:
+        """Clear layout and re-insert all term rows with separators between them."""
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w and w not in widgets:
+                w.deleteLater()
+        for i, w in enumerate(widgets):
+            if i > 0:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.Shape.HLine)
+                sep.setStyleSheet("color: #2c2c2c; max-height: 1px;")
+                layout.addWidget(sep)
+            layout.addWidget(w)
 
     def _remove_search_row(self, row: _TermRowWidget) -> None:
         if len(self._search_term_widgets) == 1:
@@ -1710,10 +1820,22 @@ class FilterSearchSidebar(QWidget):
         self._search_term_widgets.remove(row)
         self._search_rows_layout.removeWidget(row)
         row.deleteLater()
+        self._rebuild_row_block(
+            self._search_block,
+            self._search_rows_layout,
+            self._search_term_widgets,
+            "search",
+        )
         self._on_search_changed()
 
     def _add_filter_row(self, operator: str, mode: str = "text", prefill_key: str = "") -> None:
+        if self._filter_term_widgets:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("color: #2c2c2c; max-height: 1px;")
+            self._filter_rows_layout.addWidget(sep)
         row = _TermRowWidget(operator, mode=mode, parent=self)
+        row.setContentsMargins(8, 4, 4, 4)
         row.changed.connect(self._on_filter_changed)
         row.remove_requested.connect(lambda r=row: self._remove_filter_row(r))
         self._filter_term_widgets.append(row)
@@ -1728,6 +1850,12 @@ class FilterSearchSidebar(QWidget):
         self._filter_term_widgets.remove(row)
         self._filter_rows_layout.removeWidget(row)
         row.deleteLater()
+        self._rebuild_row_block(
+            self._filter_block,
+            self._filter_rows_layout,
+            self._filter_term_widgets,
+            "filter",
+        )
         self._on_filter_changed()
 
     # ── Signal handlers ───────────────────────────────────────────────────────
@@ -1738,6 +1866,7 @@ class FilterSearchSidebar(QWidget):
     def _on_filter_changed(self) -> None:
         if self._cb_live.isChecked():
             self._filter_timer.start()
+        self._update_filter_badge()
 
     def _on_json_keys_updated(self, keys: set) -> None:
         self._rebuild_json_chips(keys)
@@ -1818,6 +1947,22 @@ class FilterSearchSidebar(QWidget):
             self._lbl_hits.setText(i18n.tr("sidebar_no_hits"))
         else:
             self._lbl_hits.setText(i18n.tr("sidebar_hits", n=n))
+        self._update_search_badge()
+
+    def _update_search_badge(self) -> None:
+        n = len(self._search_matches)
+        self._search_badge.setText(str(n) if n else "")
+
+    def _update_filter_badge(self) -> None:
+        active = sum(1 for w in self._filter_term_widgets
+                     if w.to_term_row().text or w.to_term_row().key)
+        self._filter_badge.setText(str(active) if active else "")
+
+    def _update_json_badge(self) -> None:
+        # Count visible chip buttons (exclude placeholder label)
+        n = sum(1 for i in range(self._json_layout.count())
+                if isinstance(self._json_layout.itemAt(i).widget(), QPushButton))
+        self._json_badge.setText(str(n) if n else "")
 
     # ── JSON chips ────────────────────────────────────────────────────────────
 
@@ -1836,15 +1981,16 @@ class FilterSearchSidebar(QWidget):
 
         for key in sorted_keys:
             btn = QPushButton(key)
-            btn.setFixedHeight(24)
+            btn.setFixedHeight(22)
             btn.setStyleSheet(
-                f"QPushButton {{ background: {C_SEL_BG}; color: {C_TRACE}; "
-                f"border-radius: 4px; font-size: 11px; padding: 0 8px; border: none; "
-                f"text-align: left; }}"
-                f"QPushButton:hover {{ background: {C_DIVIDER}; }}"
+                f"QPushButton {{ background: transparent; color: {C_TRACE}; "
+                f"border: 1px solid #ce93d833; border-radius: 10px; font-size: 10px; "
+                f"padding: 1px 8px; text-align: left; }}"
+                f"QPushButton:hover {{ background: #ce93d811; border-color: #ce93d866; }}"
             )
             btn.clicked.connect(lambda checked=False, k=key: self._add_filter_from_key(k))
             self._json_layout.addWidget(btn)
+        self._update_json_badge()
 
     def _add_filter_from_key(self, key: str) -> None:
         """Called when a JSON key chip is clicked. Creates a KV row pre-filled with the key."""
@@ -1867,8 +2013,8 @@ class FilterSearchSidebar(QWidget):
                 lbl.setText(i18n.tr(key))
         self._btn_add_search_and.setText(i18n.tr("sidebar_add_and"))
         self._btn_add_search_or.setText(i18n.tr("sidebar_add_or"))
-        self._btn_prev.setText(i18n.tr("sidebar_prev"))
-        self._btn_next.setText(i18n.tr("sidebar_next"))
+        self._btn_prev.setText("▲")
+        self._btn_next.setText("▼")
         self._btn_add_filter_and.setText(i18n.tr("sidebar_add_and"))
         self._btn_add_filter_or.setText(i18n.tr("sidebar_add_or"))
         self._btn_add_filter_kv.setText("+ key=val")
