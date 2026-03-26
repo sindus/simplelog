@@ -13,7 +13,9 @@ from datetime import UTC, datetime
 
 from PyQt6.QtCore import (
     QAbstractListModel,
+    QEvent,
     QModelIndex,
+    QRect,
     QRectF,
     QSize,
     Qt,
@@ -26,6 +28,7 @@ from PyQt6.QtGui import (
     QBrush,
     QColor,
     QDesktopServices,
+    QFontMetrics,
     QKeySequence,
     QPainter,
     QPainterPath,
@@ -58,6 +61,8 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QStyle,
+    QStyledItemDelegate,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -1220,6 +1225,239 @@ class LogModel(QAbstractListModel):
 
     def visible_count(self) -> int:
         return len(self._visible)
+
+
+# ── LogDelegate ────────────────────────────────────────────────────────────────
+
+_ROW_H         = 22   # px — plain / JSON-collapsed row height
+_TABLE_HEAD_H  = 22   # px — table header row height
+_TABLE_ROW_H   = 18   # px — each key/value data row height
+_TABLE_PAD_B   = 6    # px — padding below last table row
+_ARROW_W       = 16   # px — width reserved for ▶/▼ toggle
+
+_LEVEL_COLORS = {
+    "error": C_ERR,
+    "warn":  C_WARN,
+    "info":  C_INFO,
+    "debug": C_DEBUG,
+    "trace": C_TRACE,
+    "plain": "#d4d4d4",
+}
+
+
+class LogDelegate(QStyledItemDelegate):
+    """Paints log rows. JSON rows are collapsible; plain rows use level colors."""
+
+    def __init__(self, viewer, parent=None):
+        super().__init__(parent)
+        # viewer is the LogViewer — used to read show_timestamps flag
+        self._viewer = viewer
+        self._search_highlights: dict[int, list[tuple[int, int]]] = {}
+        self._focused_match: tuple[int, int, int] | None = None  # (vis_idx, start, len)
+
+    def set_search_highlights(
+        self,
+        highlights: dict[int, list[tuple[int, int]]],
+    ) -> None:
+        self._search_highlights = highlights
+
+    def set_focused_match(self, vis_idx: int, char_start: int, char_len: int) -> None:
+        self._focused_match = (vis_idx, char_start, char_len)
+
+    # ── QStyledItemDelegate interface ─────────────────────────────────────────
+
+    def sizeHint(self, option, index):
+        item = index.data(_ITEM_ROLE)
+        if item is None or not item.is_json or not item.expanded or not item.json_data:
+            return QSize(option.rect.width(), _ROW_H)
+        n = len(item.json_data)
+        return QSize(
+            option.rect.width(),
+            _ROW_H + _TABLE_HEAD_H + _TABLE_ROW_H * n + _TABLE_PAD_B,
+        )
+
+    def paint(self, painter, option, index):
+        item = index.data(_ITEM_ROLE)
+        if item is None:
+            return
+
+        painter.save()
+        painter.setClipRect(option.rect)
+
+        # Selection background
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, QColor("#1a3a6e55"))
+
+        if item.is_json:
+            self._paint_json(painter, option, index, item)
+        else:
+            self._paint_plain(painter, option, index, item)
+
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            item = index.data(_ITEM_ROLE)
+            if item and item.is_json and item.json_data:
+                # Toggle only if click is within the arrow column
+                if event.pos().x() <= option.rect.x() + _ARROW_W:
+                    model.setData(index, not item.expanded, _EXPANDED_ROLE)
+                    return True
+        return False
+
+    # ── Private paint helpers ─────────────────────────────────────────────────
+
+    def _baseline(self, rect: QRect, fm: QFontMetrics, row_h: int = _ROW_H) -> int:
+        """Return y baseline for text vertically centered in a row."""
+        return rect.top() + (row_h - fm.height()) // 2 + fm.ascent()
+
+    def _draw_segments(
+        self,
+        painter,
+        x: int,
+        y: int,
+        segments: list[tuple[str, str]],
+        fm: QFontMetrics,
+    ) -> int:
+        """Draw (text, color) segments left-to-right. Returns x after last segment."""
+        for text, color in segments:
+            painter.setPen(QColor(color))
+            painter.drawText(x, y, text)
+            x += fm.horizontalAdvance(text)
+        return x
+
+    def _paint_plain(self, painter, option, index, item: LogItem) -> None:
+        fm = painter.fontMetrics()
+        y  = self._baseline(option.rect, fm)
+        x  = option.rect.left() + 4
+
+        color = _LEVEL_COLORS.get(_classify_line(item.message), "#d4d4d4")
+
+        # Search highlight rect (drawn behind text)
+        vis_idx = index.row()
+        self._draw_search_bg(painter, option.rect, x, item.message, vis_idx, fm)
+
+        # Timestamp prefix
+        if self._viewer.show_timestamps and item.ts_ms:
+            ts = datetime.fromtimestamp(item.ts_ms / 1000, tz=UTC).strftime("%H:%M:%S")
+            x = self._draw_segments(painter, x, y, [(f"[{ts}]  ", C_TS)], fm)
+
+        painter.setPen(QColor(color))
+        painter.drawText(x, y, item.message)
+
+    def _paint_json(self, painter, option, index, item: LogItem) -> None:
+        fm   = painter.fontMetrics()
+        rect = option.rect
+        y    = self._baseline(rect, fm)
+        x0   = rect.left() + 4
+
+        # ▶/▼ toggle arrow
+        arrow = "▼" if item.expanded else "▶"
+        painter.setPen(QColor(C_MUTED))
+        painter.drawText(x0, y, arrow)
+        x = x0 + _ARROW_W
+
+        # Timestamp
+        if self._viewer.show_timestamps and item.ts_ms:
+            ts = datetime.fromtimestamp(item.ts_ms / 1000, tz=UTC).strftime("%H:%M:%S")
+            x = self._draw_segments(painter, x, y, [(f"[{ts}]  ", C_TS)], fm)
+
+        # Main value (or first key=val if no main key)
+        color = _LEVEL_COLORS.get(_classify_line(item.message), "#d4d4d4")
+        if item.main_key and item.json_data:
+            main_val = str(item.json_data[item.main_key])[:80]
+            x = self._draw_segments(painter, x, y, [(main_val, color)], fm)
+        elif item.json_data:
+            # No standard key — show first two keys inline
+            pairs = list(item.json_data.items())[:2]
+            for k, v in pairs:
+                seg = f"  {k}={str(v)[:30]}"
+                x = self._draw_segments(painter, x, y, [(seg, C_MUTED)], fm)
+
+        # Summary of remaining keys (collapsed only)
+        if not item.expanded and item.json_data:
+            shown_keys = {item.main_key} if item.main_key else set()
+            if not item.main_key:
+                shown_keys = {k for k, _ in list(item.json_data.items())[:2]}
+            rest = [k for k in item.json_data if k not in shown_keys]
+            if rest:
+                shown_rest = rest[:2]
+                for k in shown_rest:
+                    seg = f"  · {k}={str(item.json_data[k])[:20]}"
+                    x = self._draw_segments(painter, x, y, [(seg, C_MUTED)], fm)
+                remaining = len(rest) - len(shown_rest)
+                if remaining > 0:
+                    x = self._draw_segments(painter, x, y, [(f"  +{remaining}", C_MUTED)], fm)
+
+        # Expanded table
+        if item.expanded and item.json_data:
+            self._paint_table(painter, rect, item, fm)
+
+    def _paint_table(self, painter, rect: QRect, item: LogItem, fm: QFontMetrics) -> None:
+        key_col_w = 110
+        x_key = rect.left() + _ARROW_W + 4
+        x_val = x_key + key_col_w + 8
+
+        # Table header
+        header_y = rect.top() + _ROW_H
+        painter.fillRect(
+            QRect(rect.left(), header_y, rect.width(), _TABLE_HEAD_H),
+            QColor("#161616"),
+        )
+        header_base = header_y + ((_TABLE_HEAD_H - fm.height()) // 2) + fm.ascent()
+        painter.setPen(QColor(C_MUTED))
+        painter.drawText(x_key, header_base, "key")
+        painter.drawText(x_val, header_base, "value")
+
+        # Data rows
+        for i, (k, v) in enumerate(item.json_data.items()):
+            row_top  = header_y + _TABLE_HEAD_H + i * _TABLE_ROW_H
+            row_base = row_top + ((_TABLE_ROW_H - fm.height()) // 2) + fm.ascent()
+
+            # Alternating row background
+            if i % 2 == 0:
+                painter.fillRect(QRect(rect.left(), row_top, rect.width(), _TABLE_ROW_H),
+                                 QColor("#111111"))
+
+            painter.setPen(QColor(C_TRACE))
+            painter.drawText(x_key, row_base, str(k)[:20])
+
+            val_color = self._value_color(v)
+            painter.setPen(QColor(val_color))
+            painter.drawText(x_val, row_base, str(v)[:80])
+
+    def _value_color(self, v) -> str:
+        if isinstance(v, bool):
+            return C_WARN
+        if isinstance(v, (int, float)):
+            return C_DEBUG
+        if v is None:
+            return C_MUTED
+        return "#d4d4d4"
+
+    def _draw_search_bg(
+        self,
+        painter,
+        row_rect: QRect,
+        text_x: int,
+        text: str,
+        vis_idx: int,
+        fm: QFontMetrics,
+    ) -> None:
+        """Draw yellow background rects behind search match characters."""
+        highlights = self._search_highlights.get(vis_idx, [])
+        if not highlights:
+            return
+        y = row_rect.top() + 2
+        h = row_rect.height() - 4
+        for char_start, char_len in highlights:
+            prefix_w = fm.horizontalAdvance(text[:char_start])
+            match_w  = fm.horizontalAdvance(text[char_start:char_start + char_len])
+            color = "#ffd54f66"
+            focused = self._focused_match
+            if focused and focused[0] == vis_idx and focused[1] == char_start:
+                color = "#ffd54faa"
+            painter.fillRect(QRect(text_x + prefix_w, y, match_w, h), QColor(color))
 
 
 # ── LogHighlighter ─────────────────────────────────────────────────────────────
