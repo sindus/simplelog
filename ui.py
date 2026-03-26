@@ -1610,11 +1610,16 @@ class FilterSearchSidebar(QWidget):
         self._btn_add_filter_and.clicked.connect(lambda: self._add_filter_row("AND"))
         self._btn_add_filter_or  = QPushButton()
         self._btn_add_filter_or.clicked.connect(lambda: self._add_filter_row("OR"))
+        self._btn_add_filter_kv = QPushButton()
+        self._btn_add_filter_kv.clicked.connect(lambda: self._add_filter_row("AND", mode="kv"))
+        self._btn_add_filter_kv.setFixedHeight(24)
+        self._btn_add_filter_kv.setStyleSheet(self._add_btn_style())
         for btn in (self._btn_add_filter_and, self._btn_add_filter_or):
             btn.setFixedHeight(24)
             btn.setStyleSheet(self._add_btn_style())
         add_filter.addWidget(self._btn_add_filter_and)
         add_filter.addWidget(self._btn_add_filter_or)
+        add_filter.addWidget(self._btn_add_filter_kv)
         add_filter.addStretch()
         layout.addLayout(add_filter)
 
@@ -1707,13 +1712,15 @@ class FilterSearchSidebar(QWidget):
         row.deleteLater()
         self._on_search_changed()
 
-    def _add_filter_row(self, operator: str) -> None:
-        row = _TermRowWidget(operator, parent=self)
+    def _add_filter_row(self, operator: str, mode: str = "text", prefill_key: str = "") -> None:
+        row = _TermRowWidget(operator, mode=mode, parent=self)
         row.changed.connect(self._on_filter_changed)
         row.remove_requested.connect(lambda r=row: self._remove_filter_row(r))
         self._filter_term_widgets.append(row)
         self._filter_rows_layout.addWidget(row)
         row.set_placeholder(i18n.tr("sidebar_term_ph"))
+        if prefill_key:
+            row.set_text(prefill_key)
 
     def _remove_filter_row(self, row: _TermRowWidget) -> None:
         if len(self._filter_term_widgets) == 1:
@@ -1840,13 +1847,11 @@ class FilterSearchSidebar(QWidget):
             self._json_layout.addWidget(btn)
 
     def _add_filter_from_key(self, key: str) -> None:
-        # If the last filter row is empty, fill it; otherwise append a new AND row
-        last = self._filter_term_widgets[-1] if self._filter_term_widgets else None
-        if last and last.to_term_row().text == "":
-            last.set_text(key)
-        else:
-            self._add_filter_row("AND")
-            self._filter_term_widgets[-1].set_text(key)
+        """Called when a JSON key chip is clicked. Creates a KV row pre-filled with the key."""
+        self._add_filter_row("AND", mode="kv", prefill_key=key)
+        self._filter_term_widgets[-1].focus_value_input()
+        if self._cb_live.isChecked():
+            self._filter_timer.start()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1866,6 +1871,7 @@ class FilterSearchSidebar(QWidget):
         self._btn_next.setText(i18n.tr("sidebar_next"))
         self._btn_add_filter_and.setText(i18n.tr("sidebar_add_and"))
         self._btn_add_filter_or.setText(i18n.tr("sidebar_add_or"))
+        self._btn_add_filter_kv.setText("+ key=val")
         self._cb_live.setText(i18n.tr("sidebar_live_filter"))
         self._lbl_json_ph.setText(i18n.tr("sidebar_json_ph"))
         for w in self._search_term_widgets + self._filter_term_widgets:
