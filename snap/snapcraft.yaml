@@ -1,0 +1,50 @@
+name: simplelog
+base: core24
+version: '1.0.0'
+summary: Fast multi-source log viewer for CloudWatch, local files, and stdin
+description: |
+  SimpleLog is a fast log viewer for AWS CloudWatch streams, local log
+  files, and piped stdin — built with PyQt6.
+
+  Features:
+  - Live tailing of files and CloudWatch streams
+  - Tabs and split panes (side-by-side or stacked)
+  - Syntax highlighting for ERROR, WARN, INFO, DEBUG, timestamps, JSON
+  - Sidebar search (Ctrl+F) and live filter with AND/OR logic
+  - JSON key detection for quick filtering
+  - Workspaces — save and restore full sessions
+  - Material Design dark theme
+
+icon: snap/gui/simplelog.png
+grade: stable
+confinement: strict
+
+apps:
+  simplelog:
+    command: bin/simplelog
+    extensions: [gnome]
+    environment:
+      QT_QPA_PLATFORM: xcb
+    plugs:
+      - home
+      - network
+      - removable-media
+
+parts:
+  simplelog:
+    plugin: python
+    source: .
+    python-requirements:
+      - requirements.txt
+    stage-packages:
+      - libxcb-icccm4
+      - libxcb-image0
+      - libxcb-keysyms1
+      - libxcb-randr0
+      - libxcb-render-util0
+      - libxcb-xinerama0
+      - libxcb-xkb1
+      - libxkbcommon-x11-0
+      - libgl1
+      - libegl1
+      - libdbus-1-3

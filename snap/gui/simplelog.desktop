@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SimpleLog
+Comment=Fast multi-source log viewer for CloudWatch, local files, and stdin
+Exec=simplelog %F
+Icon=${SNAP}/snap/gui/simplelog.png
+Type=Application
+Categories=Development;Utility;
+MimeType=text/plain;
+Keywords=log;viewer;cloudwatch;aws;tail;
