@@ -48,6 +48,7 @@ def _parse_args():
         help="Number of lines to load from the end of each file (default: 100)",
     )
     parser.add_argument("files", nargs="*", help="Log file paths to open")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args, _ = parser.parse_known_args()
     return args
 
