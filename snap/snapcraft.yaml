@@ -16,7 +16,7 @@ description: |
   - Workspaces — save and restore full sessions
   - Material Design dark theme
 
-icon: snap/gui/simplelog.png
+icon: snap/gui/icon.png
 license: MIT
 grade: stable
 confinement: strict
