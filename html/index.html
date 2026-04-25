@@ -406,7 +406,7 @@
       <li><a href="#cli" data-en="CLI" data-fr="CLI" data-de="CLI" data-es="CLI" data-zh="CLI">CLI</a></li>
       <li><a href="#install" data-en="Install" data-fr="Installer" data-de="Installieren" data-es="Instalar" data-zh="安装">Install</a></li>
       <li><a href="#uninstall" data-en="Uninstall" data-fr="Désinstaller" data-de="Deinstallieren" data-es="Desinstalar" data-zh="卸载">Uninstall</a></li>
-      <li><a href="https://github.com/sindus/simplelog" target="_blank">GitHub</a></li>
+      <li><a href="https://github.com/simplelogdev/simplelog" target="_blank">GitHub</a></li>
       <li>
         <div class="lang-toggle">
           <button id="btn-en" class="active" onclick="setLang('en')">EN</button>
@@ -446,7 +446,7 @@
       </svg>
       <span data-en="Download" data-fr="Télécharger" data-de="Herunterladen" data-es="Descargar" data-zh="下载">Download</span>
     </a>
-    <a href="https://github.com/sindus/simplelog" target="_blank" class="btn btn-secondary">
+    <a href="https://github.com/simplelogdev/simplelog" target="_blank" class="btn btn-secondary">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
       </svg>
@@ -812,7 +812,7 @@
             <span class="step-num">1</span> Run in your terminal
           </div>
           <div class="code-block" id="oneliner-code">
-            <span class="ps">$</span> curl -sSL https://raw.githubusercontent.com/sindus/simplelog/master/install.sh | bash
+            <span class="ps">$</span> curl -sSL https://raw.githubusercontent.com/simplelogdev/simplelog/master/install.sh | bash
             <button class="copy-btn" onclick="copyCode('oneliner-code')">Copy</button>
           </div>
         </div>
@@ -833,24 +833,43 @@
         <h3>macOS</h3>
         <p class="sub">Requires macOS 12 Monterey or later. Apple Silicon and Intel both supported.</p>
 
-        <div class="dl-btn-wrap">
-          <a href="https://github.com/sindus/simplelog/releases/latest/download/SimpleLog-macOS.dmg"
-             class="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 1a.5.5 0 0 1 .5.5v7.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 9.293V1.5A.5.5 0 0 1 8 1z"/>
-              <path d="M.5 13a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z"/>
-            </svg>
-            Download SimpleLog-macOS.dmg
-          </a>
-          <p class="dl-info">Opens the disk image — drag SimpleLog.app to Applications.</p>
+        <div class="step">
+          <div class="step-title">
+            <span class="step-num">1</span> Add the tap
+          </div>
+          <div class="code-block" id="brew-tap-code">
+            <span class="ps">$</span> brew tap simplelogdev/simplelog
+            <button class="copy-btn" onclick="copyCode('brew-tap-code')">Copy</button>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-title">
+            <span class="step-num">2</span> Install
+          </div>
+          <div class="code-block" id="brew-install-code">
+            <span class="ps">$</span> brew install simplelog
+            <button class="copy-btn" onclick="copyCode('brew-install-code')">Copy</button>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-title">
+            <span class="step-num">3</span> Launch
+          </div>
+          <div class="code-block">
+            <span class="ps">$</span> simplelog
+          </div>
         </div>
 
-        <div class="step" style="margin-top:28px">
-          <div class="step-title">
-            <span class="step-num">!</span> First launch (Gatekeeper)
-          </div>
-          <p style="color:var(--muted);font-size:14px;margin-bottom:10px">
-            If macOS blocks the app, right-click it → <strong>Open</strong> → <strong>Open</strong>.
+        <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border)">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+            Don't have Homebrew? <a href="https://brew.sh" target="_blank">Install it here</a> — or download the .dmg directly:
+          </p>
+          <a href="https://github.com/simplelogdev/simplelog/releases/latest/download/SimpleLog-macOS.dmg"
+             class="btn btn-secondary" style="font-size:13px;padding:9px 18px">
+            Download .dmg
+          </a>
+          <p style="font-size:12px;color:var(--muted);margin-top:10px">
+            If macOS blocks the app: right-click → <strong>Open</strong> → <strong>Open</strong>
           </p>
         </div>
       </div>
@@ -860,26 +879,15 @@
     <div class="tab-panel" id="tab-debian">
       <div class="install-card">
         <h3>Debian / Ubuntu</h3>
-        <p class="sub">Tested on Ubuntu 22.04+, Debian 12+. x86-64 only.</p>
-
-        <div class="dl-btn-wrap" style="margin-bottom:28px">
-          <a href="https://github.com/sindus/simplelog/releases/latest/download/simplelog_amd64.deb"
-             class="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 1a.5.5 0 0 1 .5.5v7.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 9.293V1.5A.5.5 0 0 1 8 1z"/>
-              <path d="M.5 13a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z"/>
-            </svg>
-            Download simplelog_amd64.deb
-          </a>
-        </div>
+        <p class="sub">Ubuntu 22.04+, Debian 12+. All architectures supported via Snap.</p>
 
         <div class="step">
           <div class="step-title">
-            <span class="step-num">1</span> Install the package
+            <span class="step-num">1</span> Install via Snap
           </div>
-          <div class="code-block" id="deb-code">
-            <span class="ps">$</span> sudo dpkg -i simplelog_amd64.deb
-            <button class="copy-btn" onclick="copyCode('deb-code')">Copy</button>
+          <div class="code-block" id="snap-deb-code">
+            <span class="ps">$</span> sudo snap install simplelog
+            <button class="copy-btn" onclick="copyCode('snap-deb-code')">Copy</button>
           </div>
         </div>
         <div class="step">
@@ -890,6 +898,20 @@
             <span class="ps">$</span> simplelog
           </div>
         </div>
+
+        <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border)">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Prefer a .deb package? (x86-64 only)</p>
+          <a href="https://github.com/simplelogdev/simplelog/releases/latest/download/simplelog_amd64.deb"
+             class="btn btn-secondary" style="font-size:13px;padding:9px 18px">
+            Download .deb
+          </a>
+          <div style="margin-top:16px">
+            <div class="code-block" id="deb-code">
+              <span class="ps">$</span> sudo dpkg -i simplelog_amd64.deb
+              <button class="copy-btn" onclick="copyCode('deb-code')">Copy</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -897,35 +919,39 @@
     <div class="tab-panel" id="tab-linux">
       <div class="install-card">
         <h3>Other Linux distributions</h3>
-        <p class="sub">Universal AppImage — runs on any Linux distribution, no install required. x86-64 only.</p>
+        <p class="sub">Snap works on Fedora, Arch, openSUSE, and most major distributions.</p>
 
-        <div class="dl-btn-wrap" style="margin-bottom:28px">
-          <a href="https://github.com/sindus/simplelog/releases/latest/download/simplelog-x86_64.AppImage"
-             class="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 1a.5.5 0 0 1 .5.5v7.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 9.293V1.5A.5.5 0 0 1 8 1z"/>
-              <path d="M.5 13a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z"/>
-            </svg>
-            Download simplelog-x86_64.AppImage
+        <div class="step">
+          <div class="step-title">
+            <span class="step-num">1</span> Install via Snap
+          </div>
+          <div class="code-block" id="snap-linux-code">
+            <span class="ps">$</span> sudo snap install simplelog
+            <button class="copy-btn" onclick="copyCode('snap-linux-code')">Copy</button>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-title">
+            <span class="step-num">2</span> Launch
+          </div>
+          <div class="code-block">
+            <span class="ps">$</span> simplelog
+          </div>
+        </div>
+
+        <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border)">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+            No snapd on your distro? Use the universal AppImage instead (x86-64 only):
+          </p>
+          <a href="https://github.com/simplelogdev/simplelog/releases/latest/download/simplelog-x86_64.AppImage"
+             class="btn btn-secondary" style="font-size:13px;padding:9px 18px">
+            Download AppImage
           </a>
-        </div>
-
-        <div class="step">
-          <div class="step-title">
-            <span class="step-num">1</span> Make it executable and run
-          </div>
-          <div class="code-block" id="appimage-code">
-            <span class="ps">$</span> chmod +x simplelog-x86_64.AppImage && ./simplelog-x86_64.AppImage
-            <button class="copy-btn" onclick="copyCode('appimage-code')">Copy</button>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-title">
-            <span class="step-num">2</span> Optional — install to PATH
-          </div>
-          <div class="code-block" id="appimage-install-code">
-            <span class="ps">$</span> mv simplelog-x86_64.AppImage ~/.local/bin/simplelog
-            <button class="copy-btn" onclick="copyCode('appimage-install-code')">Copy</button>
+          <div style="margin-top:16px">
+            <div class="code-block" id="appimage-code">
+              <span class="ps">$</span> chmod +x simplelog-x86_64.AppImage && ./simplelog-x86_64.AppImage
+              <button class="copy-btn" onclick="copyCode('appimage-code')">Copy</button>
+            </div>
           </div>
         </div>
       </div>
@@ -949,10 +975,23 @@
 
     <div class="uninstall-grid">
 
-      <!-- macOS -->
+      <!-- macOS Homebrew -->
       <div class="install-card">
-        <h3>macOS</h3>
-        <p class="sub">Installed from the .dmg disk image</p>
+        <h3>macOS — Homebrew</h3>
+        <p class="sub">Installed via brew</p>
+        <div class="step">
+          <div class="step-title">Uninstall</div>
+          <div class="code-block" id="uninstall-brew">
+            <span class="ps">$</span> brew uninstall simplelog
+            <button class="copy-btn" onclick="copyCode('uninstall-brew')">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- macOS .dmg -->
+      <div class="install-card">
+        <h3>macOS — .dmg</h3>
+        <p class="sub">Installed from the disk image</p>
         <div class="step">
           <div class="step-title">Remove the app bundle</div>
           <div class="code-block" id="uninstall-macos">
@@ -962,22 +1001,28 @@
         </div>
       </div>
 
-      <!-- Debian / Ubuntu -->
+      <!-- Linux Snap -->
       <div class="install-card">
-        <h3>Linux — Debian / Ubuntu</h3>
+        <h3>Linux — Snap</h3>
+        <p class="sub">Installed via snap</p>
+        <div class="step">
+          <div class="step-title">Uninstall</div>
+          <div class="code-block" id="uninstall-snap">
+            <span class="ps">$</span> sudo snap remove simplelog
+            <button class="copy-btn" onclick="copyCode('uninstall-snap')">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Debian / Ubuntu .deb -->
+      <div class="install-card">
+        <h3>Linux — .deb</h3>
         <p class="sub">Installed from the .deb package</p>
         <div class="step">
-          <div class="step-title">Remove with apt (recommended)</div>
+          <div class="step-title">Remove with apt</div>
           <div class="code-block" id="uninstall-apt">
             <span class="ps">$</span> sudo apt remove simplelog
             <button class="copy-btn" onclick="copyCode('uninstall-apt')">Copy</button>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-title">Or with dpkg directly</div>
-          <div class="code-block" id="uninstall-dpkg">
-            <span class="ps">$</span> sudo dpkg -r simplelog
-            <button class="copy-btn" onclick="copyCode('uninstall-dpkg')">Copy</button>
           </div>
         </div>
       </div>
@@ -1006,9 +1051,9 @@
       <div class="logo-dot"></div> SimpleLog
     </div>
     <div class="footer-links">
-      <a href="https://github.com/sindus/simplelog">GitHub</a>
-      <a href="https://github.com/sindus/simplelog/releases">Releases</a>
-      <a href="https://github.com/sindus/simplelog/issues">Issues</a>
+      <a href="https://github.com/simplelogdev/simplelog">GitHub</a>
+      <a href="https://github.com/simplelogdev/simplelog/releases">Releases</a>
+      <a href="https://github.com/simplelogdev/simplelog/issues">Issues</a>
     </div>
     <div>MIT License &nbsp;·&nbsp; Built with PyQt6</div>
   </div>
@@ -1052,6 +1097,18 @@
     btn.classList.add('active');
     document.getElementById('tab-' + name).classList.add('active');
   }
+
+  /* Auto-select install tab based on OS */
+  (function () {
+    const ua = navigator.userAgent;
+    let target = null;
+    if (ua.includes('Mac')) target = 'macos';
+    else if (ua.includes('Linux')) target = 'debian';
+    if (target) {
+      const btn = document.querySelector(`.tab-btn[onclick="switchTab('${target}', this)"]`);
+      if (btn) switchTab(target, btn);
+    }
+  })();
 
   /* ── Copy button ── */
   const _copied = { en: 'Copied!', fr: 'Copié !', de: 'Kopiert!', es: '¡Copiado!', zh: '已复制！' };
