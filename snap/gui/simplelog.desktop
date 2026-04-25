@@ -2,7 +2,7 @@
 Name=SimpleLog
 Comment=Fast multi-source log viewer for CloudWatch, local files, and stdin
 Exec=simplelog %F
-Icon=${SNAP}/snap/gui/simplelog.png
+Icon=${SNAP}/meta/gui/icon.png
 Type=Application
 Categories=Development;Utility;
 MimeType=text/plain;
