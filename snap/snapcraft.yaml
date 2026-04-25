@@ -1,4 +1,5 @@
 name: simplelog
+title: SimpleLog
 base: core24
 version: '1.0.0'
 summary: Fast multi-source log viewer for CloudWatch, local files, and stdin
@@ -16,8 +17,14 @@ description: |
   - Material Design dark theme
 
 icon: snap/gui/simplelog.png
+license: MIT
 grade: stable
 confinement: strict
+
+contact: sikander.ravate@gmail.com
+issues: https://github.com/simplelogdev/simplelog/issues
+source-code: https://github.com/simplelogdev/simplelog
+website: https://simplelogdev.github.io/simplelog
 
 apps:
   simplelog:
@@ -45,6 +52,7 @@ parts:
       - libxcb-xinerama0
       - libxcb-xkb1
       - libxkbcommon-x11-0
+      - libxcb-cursor0
       - libgl1
       - libegl1
       - libdbus-1-3
